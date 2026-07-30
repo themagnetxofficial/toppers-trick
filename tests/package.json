@@ -1,0 +1,19 @@
+{
+  "name": "@workspace/tests",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test --config playwright.config.ts",
+    "test:e2e:live": "playwright test --config playwright.live.config.ts",
+    "test:e2e:ui": "playwright test --config playwright.config.ts --ui",
+    "test:e2e:debug": "playwright test --config playwright.config.ts --debug"
+  },
+  "devDependencies": {
+    "@clerk/backend": "^1.27.2",
+    "@clerk/testing": "^1.5.6",
+    "@playwright/test": "^1.53.2",
+    "@types/node": "catalog:",
+    "@types/pdfkit": "^0.17.6",
+    "pdfkit": "^0.19.1"
+  }
+}
