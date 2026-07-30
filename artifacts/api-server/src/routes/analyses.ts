@@ -9,7 +9,7 @@ import {
 import { requireAuth } from "../lib/auth";
 import { analyzeWithAI } from "../lib/openai";
 import { extractTextFromFiles } from "../lib/extractText";
-import { generateStudyGuidePdf, getPdfOutputDir } from "../lib/pdfService";
+import { generateStudyGuidePdf, getPdfOutputDir, getUploadsDir } from "../lib/pdfService";
 import {
   CreateAnalysisBody,
   ListAnalysesResponse,
@@ -75,7 +75,9 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
   }
 
   // Validate file paths (security: ensure they're within uploads dir)
-  const UPLOADS_BASE = path.join(process.cwd(), "uploads");
+  // Use getUploadsDir() — same source of truth as the upload route — so paths
+  // always match regardless of what process.cwd() resolves to at runtime.
+  const UPLOADS_BASE = getUploadsDir();
   for (const fp of filePaths) {
     const resolved = path.resolve(fp);
     if (!resolved.startsWith(UPLOADS_BASE)) {
