@@ -1,0 +1,16 @@
+I'm facing a bug in the "New Analysis" flow. Here's exactly what's happening:
+
+**Issue:** When I fill out the "Details" form (Step 1 — Education Level, Class, Board, Subject Name) and click "Next Step", the app does not move to Step 2 (Upload). Instead, it either stays on Step 1 or resets back to Step 1. This also happens on the "Analyze Papers" button in the Upload step — clicking it sends me back to Step 1 instead of proceeding to Step 3 (Process).
+
+**What I've already checked:**
+- Browser console (DevTools) shows no red/visible errors — only harmless warnings (React DevTools suggestion, Clerk dev-keys warning)
+- The Network tab does not clearly show a failed request either
+
+**What I need you to do:**
+1. Check the "Next Step" and "Analyze Papers" button click handlers in the frontend code — there may be a silent validation failure that blocks navigation without showing any error message to the user.
+2. Check the form validation logic for the Details step — specifically check if there's a mismatch issue when "College/Uni" is selected but fields expect school-specific values (or vice versa). Test with data like: Education Level = College/Uni, Course = MBA, University = Meerut University, Subject = Economics.
+3. Add proper error handling and visible error messages for every step of this flow — if validation fails or an API call fails, the user must see a clear message explaining what went wrong (e.g., "Please fill in the Subject Name" or "Analysis failed, please try again"), instead of silently being sent back to a previous step.
+4. Add temporary console.log statements (or check existing logs) at each validation checkpoint and the API call to analyze papers, so we can trace exactly where the flow is breaking.
+5. Once you find the root cause, fix it, and then test the complete flow yourself end to end (Details → Upload → Process → Results) with sample data to confirm it works before telling me it's fixed.
+
+Please explain in simple terms what the actual bug was after you fix it.

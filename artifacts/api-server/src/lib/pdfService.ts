@@ -3,8 +3,13 @@ import { AiAnalysisResult } from "./openai";
 import path from "path";
 import fs from "fs";
 
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
-const PDF_OUTPUT_DIR = path.join(process.cwd(), "generated_pdfs");
+// process.cwd() is the pnpm workspace root when run via --filter, not the
+// api-server directory. Use import.meta.dirname (Node 21+) to anchor paths
+// to the compiled output file's location, then go up one level to the
+// api-server package root.
+const API_SERVER_ROOT = path.resolve(import.meta.dirname, "..");
+const UPLOADS_DIR = path.join(API_SERVER_ROOT, "uploads");
+const PDF_OUTPUT_DIR = path.join(API_SERVER_ROOT, "generated_pdfs");
 
 export function ensureDirectories() {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });

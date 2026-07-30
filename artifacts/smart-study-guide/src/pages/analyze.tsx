@@ -64,8 +64,14 @@ export default function AnalyzePage() {
     if (analysisData?.status === 'completed') {
       setLocation(`/analyses/${analysisData.id}`);
     } else if (analysisData?.status === 'failed') {
-      toast.error("Analysis failed. Please try again.");
-      setStep(1);
+      const errMsg = (analysisData as any).errorMessage;
+      const isExtractionError = errMsg?.toLowerCase().includes("extract") || errMsg?.toLowerCase().includes("text");
+      toast.error(
+        isExtractionError
+          ? "Paper mein text nahi mila. Please make sure the PDF is not scanned/image-only, or try uploading a clearer image."
+          : "Analysis failed. Please try again."
+      );
+      setStep(2); // Go back to upload step, not step 1 — user keeps their subject details
       setAnalysisId(null);
     }
   }, [analysisData, setLocation]);
@@ -148,8 +154,9 @@ export default function AnalyzePage() {
         onSuccess: (data) => {
           setAnalysisId(data.id);
         },
-        onError: () => {
-          toast.error("Failed to start analysis");
+        onError: (err: any) => {
+          const msg = err?.response?.data?.error || err?.message || "Failed to start analysis. Please try again.";
+          toast.error(msg);
           setStep(2);
         }
       });

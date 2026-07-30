@@ -1,6 +1,12 @@
 import fs from "fs";
 import path from "path";
+import { createRequire } from "node:module";
 import { logger } from "./logger";
+
+// pdf-parse is CJS-only; dynamic import() doesn't resolve it correctly when
+// esbuild externalizes it. Use createRequire so we get the bare function.
+const _require = createRequire(import.meta.url);
+const pdfParse: (buf: Buffer) => Promise<{ text: string }> = _require("pdf-parse");
 
 export async function extractTextFromFile(filePath: string): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
@@ -16,9 +22,6 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
 
 async function extractFromPdf(filePath: string): Promise<string> {
   try {
-    // Dynamic import to avoid ESM issues
-    const pdfParseModule = await import("pdf-parse");
-    const pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
     const dataBuffer = fs.readFileSync(filePath);
     const data = await pdfParse(dataBuffer);
     const text = data.text?.trim() ?? "";
