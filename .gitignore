@@ -27,6 +27,17 @@ node_modules
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# Runtime upload artifacts — never commit user-uploaded or test-generated files
+artifacts/api-server/uploads/
+artifacts/api-server/pdf-output/
+
+# Playwright test output and runtime auth state
+tests/playwright-report/
+tests/test-results/
+tests/.test-user-id
+tests/fixtures/sample-question-paper.pdf
+tests/.auth/
+
 # misc
 /.sass-cache
 /connect.lock
