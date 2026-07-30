@@ -1,0 +1,218 @@
+# Web App Build Prompt — Smart Study Guide / Chapter Analyzer
+
+Copy the entire content below and paste it into Replit (Replit Agent / Assistant) to build the app.
+
+---
+
+## PROJECT OVERVIEW
+
+Build a full-stack web application called **"Smart Study Guide"** (working name — can be changed) for school and college students in India. Students upload their previous year question papers (last 5 years, same subject), and the app uses AI to analyze chapter-wise question patterns and generate a simple, easy-to-understand study guide in Hinglish (Hindi+English mixed, written in Roman/English script).
+
+**Target users:** School students (Class 10 & 12, CBSE/ICSE/State boards) and college students (university semester exams, courses like B.Com, BA, BSc, etc.)
+
+**Core value proposition:** Instead of reading the entire syllabus, students see which chapters/topics appeared most frequently in past 5 years of papers, get a priority ranking (High/Medium/Low), and receive short Hinglish study notes for high-priority topics — plus a downloadable PDF they can study from.
+
+---
+
+## TECH STACK REQUIREMENTS
+
+- **Backend:** Node.js with Express.js
+- **Frontend:** React (or plain HTML/CSS/JS if simpler — prefer React for better UX) — must be fully mobile-responsive since most users will access via phone
+- **Database:** PostgreSQL (use a Node-compatible ORM like Prisma or Sequelize) — needed for user accounts, credit/pack tracking, and analysis history
+- **File storage:** Store uploaded PDFs/images temporarily during processing; store generated study-guide PDFs so users can re-download later (use local filesystem storage with cleanup, or a cloud storage bucket if easily available)
+- **AI Integration:** OpenAI API using model `gpt-5.4-nano` (cheapest tier, chosen specifically for cost control — do not default to a more expensive model)
+- **PDF text extraction:** Use `pdf-parse` or similar Node library for digital/text-based PDFs
+- **OCR (for scanned/handwritten papers):** Use `tesseract.js` (Node-compatible OCR) as the default; convert PDF pages to images first if needed (use `pdf-img-convert` or similar)
+- **PDF generation (for output study guide):** Use `pdfkit` or `puppeteer` (HTML-to-PDF) — must support clean formatting with headings, bullet points, and highlighted priority topics. Ensure it can render Hindi/Devanagari characters if needed, and Hinglish (Roman script) text without issues.
+- **Payments:** Razorpay integration (India-focused, supports UPI) — for the ₹129 pricing pack
+- **Authentication:** Simple email or phone OTP-based login/signup
+
+**IMPORTANT DEPLOYMENT NOTE:** This app will be built on Replit but ultimately deployed on **Hostinger (Node.js hosting) via GitHub**, NOT on Replit's own hosting. Please ensure:
+- All secrets/API keys are read from `process.env` (standard environment variables) — do NOT rely on any Replit-specific secrets mechanism that won't transfer to Hostinger
+- Include a `.env.example` file listing all required environment variables
+- Include a `.gitignore` that excludes `.env`, `node_modules`, and any temp upload/output folders
+- Provide a clean `package.json` with a proper `start` script (e.g., `node server.js` or `npm start`) since Hostinger will run this via its Node.js app manager
+- Avoid any Replit-only packages, imports, or configuration files (like `.replit` dependencies) that would break on a standard Node hosting environment
+- Structure the project so it can be pushed to a GitHub repository cleanly and cloned/deployed elsewhere without modification
+
+---
+
+## USER FLOW (STEP BY STEP)
+
+1. **Signup/Login** — simple email or phone-based auth
+2. **Category selection** — user selects:
+   - "School" or "College"
+   - If School: Class (10th/12th) + Board (CBSE / ICSE / State Board — with a dropdown, allow "Other" as free text)
+   - If College: Course/Stream (e.g., B.Com, BA, BSc — dropdown + "Other" free text) + Semester/Year
+   - Subject name (free text input, e.g., "Accountancy", "Physics", "English")
+3. **Upload papers** — user uploads up to 5 years of previous year question papers for that subject (PDF or image format, JPG/PNG accepted). Enforce a hard limit: max 5 files, max 10MB per file, max 15 pages per file.
+4. **Processing** — show a loading/progress state while:
+   - Text is extracted from each file (digital text extraction first; fall back to OCR if extraction yields little/no text)
+   - Extracted text from all years is combined and sent to the AI with a structured prompt (see AI PROMPT section below)
+   - AI response (JSON) is parsed and validated
+   - A study guide PDF is generated from the parsed data
+5. **Results page** — display:
+   - A dashboard showing chapters/topics with their frequency count and priority badge (High/Medium/Low, color-coded — e.g., red/orange/green)
+   - Hinglish study notes shown inline for High and Medium priority topics
+   - An overall exam-strategy tip from the AI
+   - A "Download Study Guide PDF" button
+6. **Usage tracking** — deduct 1 credit from the user's pack balance per completed analysis. Show remaining credits clearly (e.g., "7 of 10 analyses remaining").
+7. **Payment flow** — when a user has 0 credits and tries to start a new analysis, redirect to a purchase page: "₹129 for 10 Study Guide Analyses" via Razorpay. On successful payment, add 10 credits to their account.
+
+---
+
+## AI INTEGRATION — EXACT PROMPT TO USE
+
+Use the OpenAI API with model `gpt-5.4-nano`. Set `max_tokens` to approximately 3000 for the response. Use the following system and user prompt structure (fill in the placeholders dynamically from user input and extracted text):
+
+### System Prompt:
+```
+You are an expert academic analyst helping school and college students in 
+India prepare for exams using previous year question papers.
+
+Your task: Analyze previous year papers for a specific subject and identify 
+chapter-wise/topic-wise patterns to help students focus their study time 
+effectively.
+
+Rules:
+1. Only use information from the provided papers. Do not guess or invent 
+   information not present in the text.
+2. Identify chapter/unit names as they would appear in a standard syllabus 
+   for this subject, not generic labels.
+3. Count how often questions from each chapter appeared across the provided 
+   years, and estimate typical marks weightage if marks are visible in the 
+   papers.
+4. Write study notes in casual, friendly Hinglish (Hindi+English mixed, 
+   written in Roman/English script) — simple enough for a school or college 
+   student to understand quickly. Not overly formal Hindi, not pure English.
+5. If category is "School", use very simple language and an encouraging, 
+   supportive tone.
+6. If category is "College", use a slightly more mature tone, focused on 
+   exam strategy and time management.
+7. Output ONLY valid JSON in the exact schema below. No extra text, no 
+   markdown formatting, no preamble or explanation outside the JSON.
+```
+
+### User Prompt Template:
+```
+Category: {school_or_college}
+Class/Course: {class_or_course}
+Board/University: {board_or_university}
+Subject: {subject_name}
+Number of years provided: {year_count}
+
+Previous year paper content (combined from all years):
+{extracted_text}
+
+Analyze this content and return a JSON response with:
+1. Chapter-wise frequency count (how many times questions from this 
+   chapter appeared across the provided years)
+2. Estimated average marks weightage per chapter (if determinable from 
+   the text; otherwise use "Not specified")
+3. A priority level for each chapter: "High" (appeared in most years / 
+   high marks), "Medium" (appeared in about half the years), "Low" 
+   (appeared rarely)
+4. A short Hinglish study note (60-100 words) for each High and Medium 
+   priority chapter — explain what to focus on and common question types 
+   (MCQ, long answer, numerical, etc.)
+5. One overall exam-strategy tip in Hinglish, appropriate to the 
+   School/College tone rule above
+
+Return strictly in this JSON format, with no additional text:
+{
+  "subject": "string",
+  "category": "school | college",
+  "years_analyzed": number,
+  "chapters": [
+    {
+      "chapter_name": "string",
+      "frequency": number,
+      "marks_weightage": "string",
+      "priority": "High | Medium | Low",
+      "study_note": "string (include only for High/Medium priority chapters)"
+    }
+  ],
+  "overall_strategy_tip": "string"
+}
+```
+
+**Error handling requirement:** If the AI response is not valid JSON or doesn't match the expected schema, retry the API call once. If it fails again, show the user a friendly error message and do NOT deduct a credit for the failed attempt.
+
+---
+
+## COST CONTROL REQUIREMENTS (IMPORTANT — MUST IMPLEMENT)
+
+- Hard limit: max 5 uploaded files per analysis, max 15 pages per file, max 10MB per file — enforce this in the upload validation, not just the UI
+- Do not allow automatic retries on API failure beyond 1 retry — avoid silent repeated API calls that would increase cost
+- Log token usage per request (input/output token counts from the API response) to a simple table in the database, so actual costs can be monitored over time
+- Set `max_tokens` cap on the AI response to prevent unexpectedly long/expensive outputs
+
+---
+
+## DATABASE SCHEMA (SUGGESTED)
+
+- **users**: id, email/phone, name, created_at
+- **credits**: user_id, credits_remaining, total_purchased, updated_at
+- **analyses**: id, user_id, category (school/college), class_or_course, board_or_university, subject, years_analyzed, ai_response_json, pdf_file_path, created_at
+- **payments**: id, user_id, amount, razorpay_payment_id, status, created_at
+- **token_usage_logs**: id, analysis_id, input_tokens, output_tokens, estimated_cost, created_at
+
+---
+
+## STUDY GUIDE PDF REQUIREMENTS
+
+The generated PDF should include:
+- A title page or header: Subject name, Class/Course, Board/University, "Study Guide" branding
+- A summary table: Chapter name | Frequency | Priority | Marks Weightage
+- Detailed sections below the table for each High/Medium priority chapter, showing the Hinglish study note, with priority-based color coding or icons (e.g., 🔴 High, 🟡 Medium)
+- The overall exam-strategy tip at the end
+- Clean, readable formatting — proper font, spacing, no overflow issues. Test that Hinglish (Roman script) text renders correctly.
+
+---
+
+## PRICING & PACKAGE LOGIC
+
+- New users get **2 free analyses** on signup (no payment required)
+- After free analyses are used, users must purchase a pack: **₹129 for 10 analyses**
+- Display remaining credit count clearly on the dashboard/homepage at all times
+- Payment integration via Razorpay — on successful payment webhook/callback, add 10 credits to the user's account and log the transaction
+
+---
+
+## FRONTEND PAGES NEEDED
+
+1. Landing/Home page — explain what the app does, simple and clear, mobile-first design
+2. Signup/Login page
+3. Category & subject selection page
+4. Upload page (with file validation and clear instructions)
+5. Processing/loading page (with a friendly loading message, e.g., "Aapke papers padhe ja rahe hain...")
+6. Results/dashboard page (chapter analysis + download button)
+7. Purchase/pricing page (shown when credits run out)
+8. Simple profile/history page (past analyses, re-download old PDFs)
+
+---
+
+## ADDITIONAL NOTES FOR THE BUILDER
+
+- Prioritize a clean, simple, trustworthy design — the target users are students, so avoid clutter and keep language simple throughout the UI (mix of simple English and Hinglish is fine for UI labels too, e.g., "Apna paper upload karein")
+- Handle errors gracefully everywhere — file upload failures, OCR failures on unreadable scans, AI API failures — always show a clear, friendly message to the user, never a raw error or blank screen
+- Make sure the entire codebase uses standard Node.js/Express patterns compatible with typical shared or VPS Node hosting (like Hostinger), avoiding anything that assumes a Replit-specific runtime
+- Include a README.md with setup instructions: environment variables needed, how to run locally, and any build steps required before deployment
+- Keep the codebase modular: separate routes, controllers, services (AI service, PDF service, OCR service), and database models into clearly organized folders
+
+---
+
+## ENVIRONMENT VARIABLES NEEDED (for .env.example)
+
+```
+OPENAI_API_KEY=
+DATABASE_URL=
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+JWT_SECRET=
+PORT=
+```
+
+---
+
+Please build this as a complete, working application with all the above features implemented, following standard Node.js best practices, ready to be pushed to GitHub and deployed on Hostinger's Node.js hosting.

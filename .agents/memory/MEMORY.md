@@ -1,0 +1,1 @@
+- [Smart Study Guide architecture](smart-study-guide-arch.md) — full-stack overview: React/Clerk frontend, Express API, Drizzle/Postgres, key build quirks

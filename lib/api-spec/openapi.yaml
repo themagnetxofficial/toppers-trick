@@ -3,20 +3,26 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Smart Study Guide API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: user
+    description: User profile and credits
+  - name: analyses
+    description: Study guide analyses
+  - name: payments
+    description: Payment and credits
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +30,396 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [user]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+
+  /me/credits:
+    get:
+      operationId: getMyCredits
+      tags: [user]
+      summary: Get user's credit balance
+      responses:
+        "200":
+          description: Credit balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditBalance"
+        "401":
+          description: Unauthorized
+
+  /me/stats:
+    get:
+      operationId: getMyStats
+      tags: [user]
+      summary: Get user stats — total analyses, credits used, subjects analyzed
+      responses:
+        "200":
+          description: User stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStats"
+        "401":
+          description: Unauthorized
+
+  /analyses:
+    get:
+      operationId: listAnalyses
+      tags: [analyses]
+      summary: List user's past analyses
+      responses:
+        "200":
+          description: List of analyses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AnalysisSummary"
+        "401":
+          description: Unauthorized
+
+    post:
+      operationId: createAnalysis
+      tags: [analyses]
+      summary: Start a new study guide analysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalysisInput"
+      responses:
+        "201":
+          description: Analysis created and processing started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analysis"
+        "400":
+          description: Bad request
+        "402":
+          description: Insufficient credits
+        "401":
+          description: Unauthorized
+
+  /analyses/{id}:
+    get:
+      operationId: getAnalysis
+      tags: [analyses]
+      summary: Get a single analysis with full results
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Full analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analysis"
+        "404":
+          description: Not found
+        "401":
+          description: Unauthorized
+
+  /analyses/{id}/download:
+    get:
+      operationId: downloadAnalysisPdf
+      tags: [analyses]
+      summary: Get signed download URL for a study guide PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Download URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PdfDownload"
+        "404":
+          description: Not found
+        "401":
+          description: Unauthorized
+
+  /payments/order:
+    post:
+      operationId: createPaymentOrder
+      tags: [payments]
+      summary: Create a Razorpay order for credit pack
+      responses:
+        "201":
+          description: Razorpay order details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOrder"
+        "401":
+          description: Unauthorized
+
+  /payments/verify:
+    post:
+      operationId: verifyPayment
+      tags: [payments]
+      summary: Verify Razorpay payment and add 10 credits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentVerification"
+      responses:
+        "200":
+          description: Payment verified and credits added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditBalance"
+        "400":
+          description: Payment verification failed
+        "401":
+          description: Unauthorized
+
+  /payments/history:
+    get:
+      operationId: listPayments
+      tags: [payments]
+      summary: List user's payment history
+      responses:
+        "200":
+          description: Payment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Payment"
+        "401":
+          description: Unauthorized
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    UserProfile:
+      type: object
+      required: [clerkUserId, createdAt]
+      properties:
+        id:
+          type: number
+        clerkUserId:
+          type: string
+        name:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    CreditBalance:
+      type: object
+      required: [creditsRemaining, totalPurchased]
+      properties:
+        creditsRemaining:
+          type: number
+        totalPurchased:
+          type: number
+        freeCreditUsed:
+          type: boolean
+
+    UserStats:
+      type: object
+      required: [totalAnalyses, creditsUsed, subjectsAnalyzed, creditsRemaining]
+      properties:
+        totalAnalyses:
+          type: number
+        creditsUsed:
+          type: number
+        subjectsAnalyzed:
+          type: array
+          items:
+            type: string
+        creditsRemaining:
+          type: number
+
+    AnalysisSummary:
+      type: object
+      required: [id, category, subject, status, createdAt]
+      properties:
+        id:
+          type: number
+        category:
+          type: string
+          enum: [school, college]
+        classOrCourse:
+          type: ["string", "null"]
+        boardOrUniversity:
+          type: ["string", "null"]
+        subject:
+          type: string
+        yearsAnalyzed:
+          type: ["number", "null"]
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        hasPdf:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Analysis:
+      type: object
+      required: [id, category, subject, status, createdAt]
+      properties:
+        id:
+          type: number
+        category:
+          type: string
+          enum: [school, college]
+        classOrCourse:
+          type: ["string", "null"]
+        boardOrUniversity:
+          type: ["string", "null"]
+        subject:
+          type: string
+        yearsAnalyzed:
+          type: ["number", "null"]
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        errorMessage:
+          type: ["string", "null"]
+        aiResponse:
+          $ref: "#/components/schemas/AiAnalysisResult"
+        hasPdf:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    AiAnalysisResult:
+      type: object
+      required: [subject, category, years_analyzed, chapters, overall_strategy_tip]
+      properties:
+        subject:
+          type: string
+        category:
+          type: string
+        years_analyzed:
+          type: number
+        chapters:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChapterResult"
+        overall_strategy_tip:
+          type: string
+
+    ChapterResult:
+      type: object
+      required: [chapter_name, frequency, marks_weightage, priority]
+      properties:
+        chapter_name:
+          type: string
+        frequency:
+          type: number
+        marks_weightage:
+          type: string
+        priority:
+          type: string
+          enum: [High, Medium, Low]
+        study_note:
+          type: ["string", "null"]
+
+    AnalysisInput:
+      type: object
+      required: [category, subject, filePaths]
+      properties:
+        category:
+          type: string
+          enum: [school, college]
+        classOrCourse:
+          type: string
+        boardOrUniversity:
+          type: string
+        subject:
+          type: string
+        filePaths:
+          type: array
+          items:
+            type: string
+
+    PdfDownload:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+
+    PaymentOrder:
+      type: object
+      required: [orderId, amount, currency, key]
+      properties:
+        orderId:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        key:
+          type: string
+
+    PaymentVerification:
+      type: object
+      required: [razorpayOrderId, razorpayPaymentId, razorpaySignature]
+      properties:
+        razorpayOrderId:
+          type: string
+        razorpayPaymentId:
+          type: string
+        razorpaySignature:
+          type: string
+
+    Payment:
+      type: object
+      required: [id, amount, status, createdAt]
+      properties:
+        id:
+          type: number
+        amount:
+          type: number
+        razorpayPaymentId:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, success, failed]
+        createdAt:
+          type: string
+          format: date-time

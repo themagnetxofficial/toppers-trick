@@ -100,6 +100,24 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      // pdfkit and its CJS-only deps (fontkit uses @swc/helpers CJS helpers)
+      "pdfkit",
+      "fontkit",
+      "brotli",
+      "linebreak",
+      "unicode-properties",
+      "unicode-trie",
+      "dfa",
+      "restructure",
+      "tiny-inflate",
+      // pdf-parse
+      "pdf-parse",
+      // tesseract.js
+      "tesseract.js",
+      // multer
+      "multer",
+      // razorpay
+      "razorpay",
     ],
     sourcemap: "linked",
     plugins: [

@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Smart Study Guide"
+version = "1.0.0"
+id = "artifacts/smart-study-guide"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23180
+
+[services.development]
+run = "pnpm --filter @workspace/smart-study-guide run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/smart-study-guide", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/smart-study-guide/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23180"
+BASE_PATH = "/"
