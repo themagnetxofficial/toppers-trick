@@ -1,63 +1,118 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
-import { createRequire } from "node:module";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { logger } from "./logger";
 
-// pdf-parse is CJS-only; dynamic import() doesn't resolve it correctly when
-// esbuild externalizes it. Use createRequire so we get the bare function.
-const _require = createRequire(import.meta.url);
-const pdfParse: (buf: Buffer) => Promise<{ text: string }> = _require("pdf-parse");
+const execFileAsync = promisify(execFile);
 
-export async function extractTextFromFile(filePath: string): Promise<string> {
-  const ext = path.extname(filePath).toLowerCase();
-
-  if (ext === ".pdf") {
-    return extractFromPdf(filePath);
-  } else if ([".jpg", ".jpeg", ".png"].includes(ext)) {
-    return extractFromImage(filePath);
-  }
-
-  return "";
-}
-
-async function extractFromPdf(filePath: string): Promise<string> {
+// ---------------------------------------------------------------------------
+// Text-based PDF: use pdftotext (poppler) — fast, no API issues
+// ---------------------------------------------------------------------------
+async function extractTextViaPdfToText(filePath: string): Promise<string> {
   try {
-    const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdfParse(dataBuffer);
-    const text = data.text?.trim() ?? "";
-
-    // If PDF text extraction yields little text, it might be a scanned PDF
-    if (text.length < 100) {
-      logger.info({ filePath }, "PDF text extraction yielded little text, may be scanned");
-      return text; // Return what we have
-    }
-
-    return text;
+    const { stdout } = await execFileAsync("pdftotext", ["-layout", filePath, "-"]);
+    return stdout.trim();
   } catch (err) {
-    logger.error({ err, filePath }, "PDF text extraction failed");
+    logger.warn({ err, filePath }, "pdftotext failed");
     return "";
   }
 }
 
+// ---------------------------------------------------------------------------
+// Scanned PDF: render each page to PPM with pdftoppm, then OCR with tesseract
+// ---------------------------------------------------------------------------
+async function extractTextViaOcrFromPdf(filePath: string): Promise<string> {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "smartstudy-"));
+  try {
+    // Render all pages at 200 dpi (good balance of speed vs accuracy for A4 scans)
+    await execFileAsync("pdftoppm", ["-r", "200", filePath, path.join(tmpDir, "page")]);
+
+    const pages = fs
+      .readdirSync(tmpDir)
+      .filter((f) => f.endsWith(".ppm"))
+      .sort(); // natural page order
+
+    if (pages.length === 0) {
+      logger.warn({ filePath }, "pdftoppm produced no pages");
+      return "";
+    }
+
+    logger.info({ filePath, pages: pages.length }, "Running OCR on scanned PDF pages");
+
+    // Run tesseract on each page sequentially to avoid worker memory spikes
+    const { createWorker } = await import("tesseract.js");
+    const worker = await createWorker("eng");
+    const texts: string[] = [];
+
+    for (const page of pages) {
+      const imgPath = path.join(tmpDir, page);
+      const { data } = await worker.recognize(imgPath);
+      if (data.text?.trim()) texts.push(data.text.trim());
+    }
+
+    await worker.terminate();
+    return texts.join("\n\n");
+  } catch (err) {
+    logger.error({ err, filePath }, "OCR from scanned PDF failed");
+    return "";
+  } finally {
+    // Clean up temp page images
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Image file: OCR directly with tesseract
+// ---------------------------------------------------------------------------
 async function extractFromImage(filePath: string): Promise<string> {
   try {
-    // Dynamic import tesseract.js
     const { createWorker } = await import("tesseract.js");
     const worker = await createWorker("eng");
     const { data } = await worker.recognize(filePath);
     await worker.terminate();
     return data.text?.trim() ?? "";
   } catch (err) {
-    logger.error({ err, filePath }, "OCR extraction failed");
+    logger.error({ err, filePath }, "OCR extraction from image failed");
     return "";
   }
 }
 
-export async function extractTextFromFiles(
-  filePaths: string[]
-): Promise<string> {
-  const texts = await Promise.all(
-    filePaths.map((fp) => extractTextFromFile(fp))
-  );
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+export async function extractTextFromFile(filePath: string): Promise<string> {
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (ext === ".pdf") {
+    // Try fast text extraction first
+    const text = await extractTextViaPdfToText(filePath);
+
+    // Heuristic: if we got less than 100 meaningful chars it's likely a scanned PDF
+    if (text.length < 100) {
+      logger.info(
+        { filePath, textLen: text.length },
+        "PDF has little/no selectable text — falling back to OCR"
+      );
+      return extractTextViaOcrFromPdf(filePath);
+    }
+
+    return text;
+  }
+
+  if ([".jpg", ".jpeg", ".png"].includes(ext)) {
+    return extractFromImage(filePath);
+  }
+
+  return "";
+}
+
+export async function extractTextFromFiles(filePaths: string[]): Promise<string> {
+  const texts = await Promise.all(filePaths.map((fp) => extractTextFromFile(fp)));
   return texts.filter(Boolean).join("\n\n---\n\n");
 }
