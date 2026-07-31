@@ -45,7 +45,11 @@ Your task: Deeply analyze the provided previous-year paper text and produce a ch
 STRICT RULES — follow every one without exception:
 
 1. EVERY chapter MUST have a study_note — no exceptions, including Low priority chapters.
-   - High/Medium priority: 100–150 words structured in three parts: (a) "Kya padhna hai" — list the specific sub-topics, theories, named concepts, formulas, or case types that actually appeared in the papers (use exact names from the paper text, e.g. "Maslow's Hierarchy", "EOQ formula", "Porter's Five Forces"); (b) "Kaise poochha jaata hai" — describe the exact question format seen (e.g. "ek 10-mark case study", "define + differentiate", "numerical problems on..."); (c) "Repeat pattern" — if the same or similar question appeared in multiple years, call it out explicitly (e.g. "Yeh question teen saalon mein repeat hua hai").
+   - High/Medium priority: 100–150 words. Write the note as three continuous sections, each starting with EXACTLY these label words (and a colon), with no (a)/(b)/(c) numbers or any other prefix before the label:
+       "Kya padhna hai: " — list the specific sub-topics, theories, named concepts, formulas, or case types that actually appeared in the papers (use exact names, e.g. "Maslow's Hierarchy", "EOQ formula", "Porter's Five Forces").
+       "Kaise poochha jaata hai: " — describe the exact question format seen (e.g. "ek 10-mark case study", "define + differentiate", "numerical problems on...").
+       "Repeat pattern: " — if the same or similar question appeared in multiple years, call it out explicitly (e.g. "Yeh question teen saalon mein repeat hua hai").
+   CRITICAL: Do NOT put "(a)", "(b)", "(c)" or any numbered/lettered label anywhere in the study_note. The three sections must start directly with "Kya padhna hai:", "Kaise poochha jaata hai:", and "Repeat pattern:" — nothing before them.
    - Low priority: 2–3 sentences telling the student whether to skip entirely, skim once, or what one minimal thing to know just in case.
    - NEVER output "No specific notes provided" or any generic placeholder.
 
@@ -72,7 +76,7 @@ ${params.extractedText.substring(0, 20000)}
 
 Now produce the analysis. Remember:
 - List every chapter/unit found in the papers.
-- For EVERY chapter (High, Medium, AND Low priority), write a study_note. Low priority gets 2-3 sentences. High/Medium get 100-150 words with three parts: what to study (specific names from the paper), how it's asked (question format/marks), and any repeat pattern across years.
+- For EVERY chapter (High, Medium, AND Low priority), write a study_note. Low priority gets 2-3 sentences. High/Medium get 100-150 words with exactly three labeled sections starting with "Kya padhna hai:", "Kaise poochha jaata hai:", and "Repeat pattern:" — no (a)/(b)/(c) numbers anywhere in the text.
 - For High/Medium chapters, key_terms must be 3–5 short phrases extracted directly from the paper text (theory names, formulas, specific case types). For Low chapters, key_terms = [].
 - frequency = total number of times questions from that chapter appeared across ALL provided years.
 - marks_weightage = typical marks allocated per question for this chapter (e.g. "10 marks", "2x5 marks", "Not visible").

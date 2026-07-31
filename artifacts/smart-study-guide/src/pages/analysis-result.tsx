@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw } from "lucide-react";
+import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw, Layers } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -165,6 +165,88 @@ export default function AnalysisResultPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Strategy Tiers */}
+      {ai?.chapters && ai.chapters.length > 0 && (() => {
+        const high = [...ai.chapters.filter(c => c.priority === 'High')].sort((a, b) => b.frequency - a.frequency);
+        const medium = [...ai.chapters.filter(c => c.priority === 'Medium')].sort((a, b) => b.frequency - a.frequency);
+        const low = [...ai.chapters.filter(c => c.priority === 'Low')].sort((a, b) => b.frequency - a.frequency);
+        const total = ai.chapters.length;
+        const totalFreq = ai.chapters.reduce((s, c) => s + c.frequency, 0) || 1;
+        const freqCov = (chs: typeof ai.chapters) => Math.round(chs.reduce((s, c) => s + c.frequency, 0) / totalFreq * 100);
+
+        const tiers = [
+          {
+            emoji: '🎯',
+            title: 'Bas Pass Hona Hai',
+            subtitle: 'Just want to pass',
+            chapters: high,
+            count: high.length,
+            coverage: freqCov(high),
+            color: 'border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/30',
+            badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+            dot: 'bg-red-500',
+          },
+          {
+            emoji: '📈',
+            title: 'Average Score Chahiye',
+            subtitle: 'Want a decent score',
+            chapters: [...high, ...medium],
+            count: high.length + medium.length,
+            coverage: freqCov([...high, ...medium]),
+            color: 'border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900/30',
+            badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+            dot: 'bg-amber-500',
+          },
+          {
+            emoji: '🏆',
+            title: 'Top Karna Hai',
+            subtitle: 'Want to top the exam',
+            chapters: [...high, ...medium, ...low],
+            count: total,
+            coverage: 100,
+            color: 'border-green-200 bg-green-50 dark:bg-green-900/10 dark:border-green-900/30',
+            badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+            dot: 'bg-green-500',
+          },
+        ];
+
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 px-2">
+              <Layers className="w-6 h-6 text-primary" />
+              <h2 className="text-2xl font-bold font-serif">Apni Strategy Chuno</h2>
+            </div>
+            <p className="text-sm text-muted-foreground px-2">Pick your goal — here's exactly which chapters to study based on past paper patterns.</p>
+            <div className="grid md:grid-cols-3 gap-4">
+              {tiers.map((tier) => (
+                <Card key={tier.title} className={`border-2 ${tier.color} flex flex-col`}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-2xl">{tier.emoji}</span>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tier.badge}`}>
+                        {tier.count}/{total} chapters · ~{tier.coverage}% marks
+                      </span>
+                    </div>
+                    <CardTitle className="text-base font-bold font-serif mt-1">{tier.title}</CardTitle>
+                    <p className="text-xs text-muted-foreground">{tier.subtitle}</p>
+                  </CardHeader>
+                  <CardContent className="flex-1 pt-0">
+                    <ol className="space-y-1">
+                      {tier.chapters.map((ch, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${tier.dot}`} />
+                          <span className="text-foreground/80">{ch.chapter_name}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Chapters Grid */}
       <div className="space-y-6">

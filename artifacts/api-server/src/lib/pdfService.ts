@@ -124,7 +124,7 @@ function parseNoteParts(note: string): Array<{ label: string; body: string }> {
 
   if (positions.length === 0) {
     // No three-part structure — return as single block
-    return [{ label: "", body: note.trim() }];
+    return [{ label: "", body: cleanNoteBody(note) }];
   }
 
   positions.sort((a, b) => a.idx - b.idx);
@@ -133,12 +133,25 @@ function parseNoteParts(note: string): Array<{ label: string; body: string }> {
   for (let i = 0; i < positions.length; i++) {
     const start = positions[i].idx;
     const end = i + 1 < positions.length ? positions[i + 1].idx : note.length;
-    // strip the label text itself from the body
+    // strip the label text itself from the body, then clean trailing artefacts
     let body = note.slice(start, end);
     body = body.replace(PATTERNS[i], "").trim();
+    body = cleanNoteBody(body);
     if (body) parts.push({ label: positions[i].label, body });
   }
   return parts;
+}
+
+/**
+ * Strip stray (a)/(b)/(c) letter-label artefacts that the model sometimes
+ * appends to the end of a section body (e.g. "…in modern organizations. (b)").
+ * Also normalises excess whitespace.
+ */
+function cleanNoteBody(text: string): string {
+  return text
+    .replace(/\s*\([abc]\)\s*$/i, "")   // trailing (a)/(b)/(c)
+    .replace(/\s*\([abc]\)\s*/gi, " ")  // mid-text (a)/(b)/(c)
+    .trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +399,143 @@ function renderChapterNote(
 }
 
 // ---------------------------------------------------------------------------
+// Strategy tiers renderer
+// ---------------------------------------------------------------------------
+
+interface StrategyTier {
+  emoji: string;
+  title: string;
+  subtitle: string;
+  chapters: ChapterResult[];
+  color: string;
+  bg: string;
+}
+
+function buildStrategyTiers(chapters: ChapterResult[]): StrategyTier[] {
+  const total = chapters.length;
+  const high = [...chapters.filter((c) => c.priority === "High")].sort(
+    (a, b) => b.frequency - a.frequency
+  );
+  const medium = [...chapters.filter((c) => c.priority === "Medium")].sort(
+    (a, b) => b.frequency - a.frequency
+  );
+  const low = [...chapters.filter((c) => c.priority === "Low")].sort(
+    (a, b) => b.frequency - a.frequency
+  );
+
+  // Marks coverage estimate: sum of frequencies for selected chapters / total frequencies * 100
+  const totalFreq = chapters.reduce((s, c) => s + c.frequency, 0) || 1;
+  const freqCoverage = (chs: ChapterResult[]) =>
+    Math.round((chs.reduce((s, c) => s + c.frequency, 0) / totalFreq) * 100);
+
+  return [
+    {
+      emoji: "🎯",
+      title: "Bas Pass Hona Hai",
+      subtitle: `Just want to pass — ${high.length} of ${total} chapters · ~${freqCoverage(high)}% marks coverage`,
+      chapters: high,
+      color: "#DC2626",
+      bg: "#FEF2F2",
+    },
+    {
+      emoji: "📈",
+      title: "Average Score Chahiye",
+      subtitle: `Decent score — ${high.length + medium.length} of ${total} chapters · ~${freqCoverage([...high, ...medium])}% marks coverage`,
+      chapters: [...high, ...medium],
+      color: "#D97706",
+      bg: "#FFFBEB",
+    },
+    {
+      emoji: "🏆",
+      title: "Top Karna Hai",
+      subtitle: `Full coverage — all ${total} chapters · 100% marks coverage`,
+      chapters: [...high, ...medium, ...low],
+      color: "#16A34A",
+      bg: "#F0FDF4",
+    },
+  ];
+}
+
+function renderStrategyTiers(
+  doc: InstanceType<typeof PDFDocument>,
+  chapters: ChapterResult[]
+) {
+  newPage(doc);
+
+  doc.fontSize(16).fillColor("#D97706").font("Helvetica-Bold")
+    .text("Apni Strategy Chuno", MARGIN, doc.y, { width: CONTENT_W });
+  doc.moveDown(0.2);
+  doc.fontSize(10).fillColor("#6B7280").font("Helvetica")
+    .text(
+      "Pick your goal — here's exactly which chapters to study based on past paper patterns.",
+      MARGIN, doc.y, { width: CONTENT_W }
+    );
+  doc.moveDown(0.8);
+  hRule(doc, "#D97706", 1);
+
+  const tiers = buildStrategyTiers(chapters);
+
+  tiers.forEach((tier) => {
+    ensureSpace(doc, tier.chapters.length * 13 + 70);
+
+    const boxTop = doc.y;
+    const estimatedHeight = tier.chapters.length * 13 + 58;
+
+    // Tier box background
+    doc.save()
+      .rect(MARGIN, boxTop, CONTENT_W, estimatedHeight)
+      .fill(tier.bg)
+      .restore();
+
+    // Left accent strip coloured by tier
+    doc.save()
+      .rect(MARGIN, boxTop, 4, estimatedHeight)
+      .fill(tier.color)
+      .restore();
+
+    // Tier heading
+    doc.fontSize(12).fillColor(tier.color).font("Helvetica-Bold")
+      .text(`${tier.emoji}  ${tier.title}`, MARGIN + 12, boxTop + 10, {
+        width: CONTENT_W - 20,
+      });
+
+    // Subtitle / coverage line
+    resetX(doc);
+    doc.fontSize(8.5).fillColor("#6B7280").font("Helvetica")
+      .text(tier.subtitle, MARGIN + 12, doc.y + 2, { width: CONTENT_W - 20 });
+    doc.moveDown(0.4);
+    resetX(doc);
+
+    // Separator inside box
+    const sepY = doc.y + 2;
+    doc.save()
+      .moveTo(MARGIN + 12, sepY)
+      .lineTo(PAGE_W - MARGIN - 8, sepY)
+      .strokeColor(tier.color)
+      .lineWidth(0.4)
+      .stroke()
+      .restore();
+    doc.moveDown(0.5);
+    resetX(doc);
+
+    // Chapter list as compact bullets
+    tier.chapters.forEach((ch, i) => {
+      resetX(doc);
+      const bullet = i === 0 ? "1." : `${i + 1}.`;
+      doc.fontSize(9).fillColor("#111827").font("Helvetica")
+        .text(`   ${bullet}  ${ch.chapter_name}`, MARGIN + 12, doc.y, {
+          width: CONTENT_W - 24,
+          lineBreak: false,
+        });
+      doc.moveDown(0.35);
+    });
+
+    doc.moveDown(0.6);
+    resetX(doc);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -447,6 +597,9 @@ export function generateStudyGuidePdf(params: {
     ordered.forEach((chapter, i) => {
       renderChapterNote(doc, chapter, i);
     });
+
+    // ---- Strategy Tiers: Apni Strategy Chuno ----
+    renderStrategyTiers(doc, params.aiResult.chapters);
 
     // ---- Overall strategy ----
     ensureSpace(doc, 100);

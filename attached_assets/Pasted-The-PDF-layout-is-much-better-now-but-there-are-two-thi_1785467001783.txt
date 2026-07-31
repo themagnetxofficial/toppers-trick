@@ -1,0 +1,27 @@
+The PDF layout is much better now, but there are two things to handle:
+
+## Fix 1: Stray "(b)" and "(c)" text appearing at the end of sections
+
+In the generated notes, I can see leftover label fragments like:
+- "...roles in modern organizations. (b)" (end of the "Kya Padhna Hai" section)
+- "...(2-10 marks). (c)" (end of the "Kaise Poochha Jaata Hai" section)
+
+These "(b)" and "(c)" fragments are clearly leftover artifacts — likely from how the AI prompt asks the model to structure its three-part answer using (a)/(b)/(c) labels, and the model is including the label text itself inside the content instead of just using it as a structural marker. Since the PDF already shows "Kya Padhna Hai" and "Kaise Poochha Jaata Hai" as proper headers, these trailing (b)/(c) tags are redundant and look like a bug to the reader.
+
+Please fix the AI prompt so the model does NOT include "(a)", "(b)", "(c)" labels as literal text within the note content — the three parts should be returned as separate clean fields/strings without any embedded label markers. Also do a light pass on PDF spacing/margins between sections for readability.
+
+## Fix 2: Add a new "Study Strategy Tiers" feature
+
+Add a new section to both the results page and the PDF called something like "Apni Strategy Chuno" (Choose Your Strategy). This should give the student three clear, specific tiers of chapters to study based on their goal — no vague or hedged language, just direct chapter names per tier:
+
+- **"Bas Pass Hona Hai" (Just want to pass)**: List only the highest-frequency, highest-priority chapters — the absolute minimum a student must cover to likely pass. Should be a short, specific list of chapter names (e.g., "HRM, Performance Appraisal, Job Analysis and Design" — not vague advice).
+
+- **"Average Score Chahiye" (Want a decent/average score)**: List High + Medium priority chapters — a moderate list covering more ground.
+
+- **"Top Karna Hai" (Want to top/score very high)**: List all chapters including Low priority ones, since a top scorer needs full coverage — explicitly state that even low-frequency chapters should not be skipped for this goal.
+
+For each tier, also add one line stating roughly how many total chapters this covers out of the full syllabus (e.g., "5 out of 10 chapters — covers approx 70% of total marks based on past papers") so students understand the tradeoff they're making.
+
+This logic should be derived directly from the frequency/priority data already computed for each chapter — no new AI call needed necessarily; this can likely be computed programmatically from the existing chapter analysis data (sort by priority/frequency, then bucket into three tiers). Decide the best approach — computing it directly in code from the existing data is preferable to making an extra AI call, since it's more reliable and cheaper.
+
+Please implement both fixes, then run a fresh test analysis and show me the corrected output (no stray (b)/(c) labels, and the new three-tier strategy section) before confirming it's done.
