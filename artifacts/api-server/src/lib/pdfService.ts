@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { AiAnalysisResult } from "./openai";
+import { AiAnalysisResult, ChapterResult } from "./openai";
 import path from "path";
 import fs from "fs";
 
@@ -26,6 +26,369 @@ export function getPdfOutputDir() {
   return PDF_OUTPUT_DIR;
 }
 
+// ---------------------------------------------------------------------------
+// Layout constants — A4 page (595.28 × 841.89 pts)
+// ---------------------------------------------------------------------------
+const PAGE_W = 595.28;
+const MARGIN = 48;
+const CONTENT_W = PAGE_W - MARGIN * 2; // 499.28
+const PAGE_H = 841.89;
+const BOTTOM_MARGIN = 60; // space to keep clear at bottom
+
+const PRIORITY_COLORS: Record<string, string> = {
+  High: "#DC2626",
+  Medium: "#D97706",
+  Low: "#16A34A",
+};
+const PRIORITY_BG: Record<string, string> = {
+  High: "#FEF2F2",
+  Medium: "#FFFBEB",
+  Low: "#F0FDF4",
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Reset x cursor to left margin and return current y. PDFKit forgets x after
+ *  absolute-positioned text calls; calling this before any flow-text block is
+ *  essential to avoid text starting mid-page. */
+function resetX(doc: InstanceType<typeof PDFDocument>) {
+  // Writing an empty string at the margin anchors the cursor x without moving y
+  doc.text("", MARGIN, doc.y);
+}
+
+/** Draw a horizontal rule at current y, then advance */
+function hRule(
+  doc: InstanceType<typeof PDFDocument>,
+  color = "#E5E7EB",
+  gap = 1
+) {
+  doc.save().moveTo(MARGIN, doc.y).lineTo(PAGE_W - MARGIN, doc.y)
+    .strokeColor(color).lineWidth(gap).stroke().restore();
+  doc.moveDown(0.6);
+}
+
+/** Estimate text height for a given string, font size, and width. Used for
+ *  pre-emptive page breaks — avoids orphaned headings. */
+function estimateTextHeight(
+  doc: InstanceType<typeof PDFDocument>,
+  text: string,
+  fontSize: number,
+  width: number
+): number {
+  const lineHeight = fontSize * 1.4;
+  const charsPerLine = Math.floor(width / (fontSize * 0.55));
+  const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
+  return lines * lineHeight;
+}
+
+/** Add a new page and reset the cursor to the top margin. */
+function newPage(doc: InstanceType<typeof PDFDocument>) {
+  doc.addPage();
+  doc.text("", MARGIN, MARGIN);
+}
+
+/** Guard: if remaining space is less than minHeight, add a new page. */
+function ensureSpace(
+  doc: InstanceType<typeof PDFDocument>,
+  minHeight: number
+) {
+  if (doc.y + minHeight > PAGE_H - BOTTOM_MARGIN) {
+    newPage(doc);
+  }
+}
+
+/**
+ * Parse a three-part AI study note into labelled segments.
+ * The AI produces notes like:
+ *   "Kya padhna hai: ... Kaise poochha jaata hai: ... Repeat pattern: ..."
+ * We split on these known labels so each part can be rendered distinctly.
+ */
+function parseNoteParts(note: string): Array<{ label: string; body: string }> {
+  const PATTERNS = [
+    /kya\s+padhna\s+hai\s*:/i,
+    /kaise\s+poochha?\s+jaata?\s+hai\s*:/i,
+    /repeat\s+pattern\s*:/i,
+  ];
+  const LABELS = ["Kya Padhna Hai", "Kaise Poochha Jaata Hai", "Repeat Pattern"];
+
+  // Find positions of each label in the note text
+  const positions: Array<{ idx: number; label: string }> = [];
+  for (let i = 0; i < PATTERNS.length; i++) {
+    const m = note.match(PATTERNS[i]);
+    if (m && m.index !== undefined) {
+      positions.push({ idx: m.index, label: LABELS[i] });
+    }
+  }
+
+  if (positions.length === 0) {
+    // No three-part structure — return as single block
+    return [{ label: "", body: note.trim() }];
+  }
+
+  positions.sort((a, b) => a.idx - b.idx);
+
+  const parts: Array<{ label: string; body: string }> = [];
+  for (let i = 0; i < positions.length; i++) {
+    const start = positions[i].idx;
+    const end = i + 1 < positions.length ? positions[i + 1].idx : note.length;
+    // strip the label text itself from the body
+    let body = note.slice(start, end);
+    body = body.replace(PATTERNS[i], "").trim();
+    if (body) parts.push({ label: positions[i].label, body });
+  }
+  return parts;
+}
+
+// ---------------------------------------------------------------------------
+// Section renderers
+// ---------------------------------------------------------------------------
+
+function renderHeader(
+  doc: InstanceType<typeof PDFDocument>,
+  params: {
+    subject: string;
+    classOrCourse?: string | null;
+    boardOrUniversity?: string | null;
+    yearsAnalyzed: number;
+  }
+) {
+  // Orange accent bar at top
+  doc.save()
+    .rect(0, 0, PAGE_W, 6)
+    .fill("#D97706")
+    .restore();
+
+  doc.text("", MARGIN, 30);
+
+  // Title
+  doc.fontSize(26).fillColor("#D97706").font("Helvetica-Bold")
+    .text("Smart Study Guide", MARGIN, 30, { width: CONTENT_W, align: "center" });
+  doc.moveDown(0.4);
+
+  // Subject
+  doc.fontSize(20).fillColor("#111827").font("Helvetica-Bold")
+    .text(params.subject, MARGIN, doc.y, { width: CONTENT_W, align: "center" });
+  doc.moveDown(0.3);
+
+  // Meta line
+  const meta = [params.classOrCourse, params.boardOrUniversity]
+    .filter(Boolean).join("  ·  ");
+  if (meta) {
+    doc.fontSize(11).fillColor("#6B7280").font("Helvetica")
+      .text(meta, MARGIN, doc.y, { width: CONTENT_W, align: "center" });
+    doc.moveDown(0.25);
+  }
+
+  doc.fontSize(10).fillColor("#9CA3AF").font("Helvetica")
+    .text(`Based on ${params.yearsAnalyzed} year(s) of previous papers`, MARGIN, doc.y, {
+      width: CONTENT_W,
+      align: "center",
+    });
+  doc.moveDown(1);
+
+  hRule(doc, "#D97706", 1.5);
+}
+
+function renderSummaryTable(
+  doc: InstanceType<typeof PDFDocument>,
+  chapters: ChapterResult[]
+) {
+  doc.fontSize(13).fillColor("#D97706").font("Helvetica-Bold")
+    .text("Chapter Priority Overview", MARGIN, doc.y, { width: CONTENT_W });
+  doc.moveDown(0.6);
+
+  // Column layout
+  const cols = [
+    { label: "Chapter / Topic", w: 235, x: MARGIN },
+    { label: "Priority", w: 80, x: MARGIN + 235 },
+    { label: "Frequency", w: 75, x: MARGIN + 315 },
+    { label: "Marks", w: 90, x: MARGIN + 390 },
+  ];
+
+  // Header row background
+  const headerY = doc.y;
+  doc.save()
+    .rect(MARGIN, headerY - 4, CONTENT_W, 20)
+    .fill("#F3F4F6")
+    .restore();
+
+  cols.forEach((col) => {
+    doc.fontSize(9).fillColor("#374151").font("Helvetica-Bold")
+      .text(col.label, col.x + 4, headerY, { width: col.w - 4 });
+  });
+
+  let rowY = headerY + 20;
+  doc.save().moveTo(MARGIN, rowY).lineTo(PAGE_W - MARGIN, rowY)
+    .strokeColor("#D1D5DB").lineWidth(0.5).stroke().restore();
+  rowY += 4;
+
+  chapters.forEach((ch, idx) => {
+    if (rowY > PAGE_H - BOTTOM_MARGIN) {
+      doc.addPage();
+      rowY = MARGIN;
+    }
+
+    // Alternating row tint
+    if (idx % 2 === 1) {
+      doc.save().rect(MARGIN, rowY - 2, CONTENT_W, 18).fill("#FAFAFA").restore();
+    }
+
+    const pColor = PRIORITY_COLORS[ch.priority] ?? "#374151";
+
+    // Chapter name
+    doc.fontSize(9).fillColor("#111827").font("Helvetica")
+      .text(ch.chapter_name || "—", cols[0].x + 4, rowY, { width: cols[0].w - 8 });
+
+    // Priority — colored pill
+    const pillW = 66;
+    const pillX = cols[1].x + (cols[1].w - pillW) / 2;
+    doc.save()
+      .roundedRect(pillX, rowY - 1, pillW, 13, 6)
+      .fill(PRIORITY_BG[ch.priority] ?? "#F3F4F6")
+      .restore();
+    doc.save()
+      .roundedRect(pillX, rowY - 1, pillW, 13, 6)
+      .stroke(pColor)
+      .restore();
+    doc.fontSize(8).fillColor(pColor).font("Helvetica-Bold")
+      .text(ch.priority, pillX, rowY + 1, { width: pillW, align: "center" });
+
+    // Frequency
+    doc.fontSize(9).fillColor("#374151").font("Helvetica")
+      .text(`${ch.frequency}×`, cols[2].x + 4, rowY, { width: cols[2].w - 4, align: "center" });
+
+    // Marks
+    doc.fontSize(9).fillColor("#374151").font("Helvetica")
+      .text(ch.marks_weightage, cols[3].x + 4, rowY, { width: cols[3].w - 4 });
+
+    rowY += 18;
+  });
+
+  // Table bottom border
+  doc.save().moveTo(MARGIN, rowY).lineTo(PAGE_W - MARGIN, rowY)
+    .strokeColor("#D1D5DB").lineWidth(0.5).stroke().restore();
+
+  // Sync PDFKit internal cursor to after the table
+  doc.text("", MARGIN, rowY + 16);
+  doc.moveDown(0.5);
+}
+
+function renderChapterNote(
+  doc: InstanceType<typeof PDFDocument>,
+  chapter: ChapterResult,
+  index: number
+) {
+  const pColor = PRIORITY_COLORS[chapter.priority] ?? "#374151";
+  const pBg = PRIORITY_BG[chapter.priority] ?? "#F9FAFB";
+
+  // Estimate block height for page-break guard (rough: heading + note + key terms)
+  const noteHeight = estimateTextHeight(doc, chapter.study_note ?? "", 10, CONTENT_W - 20);
+  const blockHeight = 24 + noteHeight + (chapter.key_terms?.length ? chapter.key_terms.length * 14 + 20 : 0) + 30;
+  ensureSpace(doc, Math.min(blockHeight, 220)); // trigger page break if less than ~220pt left
+
+  const startY = doc.y;
+
+  // Left accent bar
+  doc.save()
+    .rect(MARGIN, startY, 4, 14)
+    .fill(pColor)
+    .restore();
+
+  // Chapter number + name
+  doc.fontSize(13).fillColor("#111827").font("Helvetica-Bold")
+    .text(`${index + 1}. ${chapter.chapter_name}`, MARGIN + 12, startY, {
+      width: CONTENT_W - 80,
+    });
+
+  // Priority pill — draw to the right of the heading
+  const pillY = startY;
+  const pillW = 90;
+  const pillX = PAGE_W - MARGIN - pillW;
+  doc.save()
+    .roundedRect(pillX, pillY, pillW, 15, 7)
+    .fill(pBg)
+    .restore();
+  doc.save()
+    .roundedRect(pillX, pillY, pillW, 15, 7)
+    .stroke(pColor)
+    .restore();
+  doc.fontSize(8).fillColor(pColor).font("Helvetica-Bold")
+    .text(`${chapter.priority} Priority`, pillX, pillY + 3, { width: pillW, align: "center" });
+
+  doc.moveDown(0.5);
+  resetX(doc); // ensure x is back at MARGIN after absolute text calls
+
+  // ---- Study note ----
+  const note = chapter.study_note ?? "";
+  const noteParts = parseNoteParts(note);
+
+  if (noteParts.length === 1 && !noteParts[0].label) {
+    // Single block (Low priority or no three-part structure)
+    doc.fontSize(10).fillColor("#374151").font("Helvetica")
+      .text(noteParts[0].body, MARGIN, doc.y, {
+        width: CONTENT_W,
+        lineBreak: true,
+        lineGap: 2,
+      });
+  } else {
+    // Three-part structure: render each part with its label
+    noteParts.forEach((part) => {
+      resetX(doc);
+      ensureSpace(doc, 40);
+
+      // Part label
+      doc.fontSize(9).fillColor(pColor).font("Helvetica-Bold")
+        .text(`${part.label}:`, MARGIN, doc.y, { width: CONTENT_W });
+      doc.moveDown(0.15);
+
+      // Part body — indented slightly
+      resetX(doc);
+      doc.fontSize(10).fillColor("#374151").font("Helvetica")
+        .text(part.body, MARGIN + 8, doc.y, {
+          width: CONTENT_W - 8,
+          lineBreak: true,
+          lineGap: 2,
+        });
+      doc.moveDown(0.4);
+    });
+  }
+
+  // ---- Key terms ----
+  if (
+    (chapter.priority === "High" || chapter.priority === "Medium") &&
+    Array.isArray(chapter.key_terms) &&
+    chapter.key_terms.length > 0
+  ) {
+    doc.moveDown(0.2);
+    ensureSpace(doc, chapter.key_terms.length * 14 + 24);
+    resetX(doc);
+
+    // Key terms header
+    doc.fontSize(9).fillColor("#6B7280").font("Helvetica-Bold")
+      .text("Key Terms:", MARGIN, doc.y, { width: CONTENT_W });
+    doc.moveDown(0.2);
+
+    // Each term on its own line with a bullet
+    chapter.key_terms.forEach((term) => {
+      resetX(doc);
+      doc.fontSize(9).fillColor("#374151").font("Helvetica")
+        .text(`  •  ${term}`, MARGIN, doc.y, { width: CONTENT_W });
+    });
+  }
+
+  doc.moveDown(0.8);
+  resetX(doc);
+
+  // Bottom separator for this chapter section
+  hRule(doc, "#E5E7EB", 0.5);
+}
+
+// ---------------------------------------------------------------------------
+// Main export
+// ---------------------------------------------------------------------------
+
 export function generateStudyGuidePdf(params: {
   analysisId: number;
   subject: string;
@@ -41,202 +404,80 @@ export function generateStudyGuidePdf(params: {
     const stream = fs.createWriteStream(filePath);
 
     const doc = new PDFDocument({
-      margin: 50,
+      margin: MARGIN,
       size: "A4",
+      autoFirstPage: true,
+      bufferPages: false,
     });
 
     doc.pipe(stream);
 
-    // Title page header
-    doc
-      .fontSize(24)
-      .fillColor("#D97706")
-      .text("Smart Study Guide", { align: "center" });
+    // ---- Header ----
+    renderHeader(doc, {
+      subject: params.subject,
+      classOrCourse: params.classOrCourse,
+      boardOrUniversity: params.boardOrUniversity,
+      yearsAnalyzed: params.aiResult.years_analyzed,
+    });
 
-    doc.moveDown(0.5);
+    // ---- Summary table ----
+    renderSummaryTable(doc, params.aiResult.chapters);
 
-    doc
-      .fontSize(18)
-      .fillColor("#1F2937")
-      .text(params.subject, { align: "center" });
+    // ---- Detailed notes section ----
+    // Always start notes on a fresh page for clean separation
+    newPage(doc);
 
-    if (params.classOrCourse || params.boardOrUniversity) {
-      doc.moveDown(0.3);
-      doc
-        .fontSize(12)
-        .fillColor("#6B7280")
-        .text(
-          [params.classOrCourse, params.boardOrUniversity]
-            .filter(Boolean)
-            .join(" | "),
-          { align: "center" }
-        );
-    }
-
+    doc.fontSize(16).fillColor("#D97706").font("Helvetica-Bold")
+      .text("Detailed Study Notes", MARGIN, doc.y, { width: CONTENT_W });
     doc.moveDown(0.3);
-    doc
-      .fontSize(11)
-      .fillColor("#6B7280")
-      .text(`Years Analyzed: ${params.aiResult.years_analyzed}`, {
-        align: "center",
-      });
 
-    doc.moveDown(1);
+    doc.fontSize(10).fillColor("#6B7280").font("Helvetica")
+      .text("Read these notes carefully — they're based on actual patterns found in your past papers.",
+        MARGIN, doc.y, { width: CONTENT_W });
+    doc.moveDown(0.8);
+    hRule(doc, "#D97706", 1);
 
-    // Divider line
-    doc
-      .moveTo(50, doc.y)
-      .lineTo(545, doc.y)
-      .strokeColor("#E5E7EB")
-      .lineWidth(1)
-      .stroke();
+    // Order: High → Medium → Low
+    const ordered = [
+      ...params.aiResult.chapters.filter((c) => c.priority === "High"),
+      ...params.aiResult.chapters.filter((c) => c.priority === "Medium"),
+      ...params.aiResult.chapters.filter((c) => c.priority === "Low"),
+    ];
 
-    doc.moveDown(1);
-
-    // Summary table header
-    doc.fontSize(14).fillColor("#D97706").text("Chapter Priority Summary");
-    doc.moveDown(0.5);
-
-    // Table header row
-    const colWidths = [200, 70, 80, 100];
-    const headers = ["Chapter", "Frequency", "Priority", "Marks"];
-    const tableX = 50;
-    let tableY = doc.y;
-
-    doc.fontSize(10).fillColor("#374151");
-    headers.forEach((h, i) => {
-      const x = tableX + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
-      doc.text(h, x, tableY, { width: colWidths[i], align: "left" });
+    ordered.forEach((chapter, i) => {
+      renderChapterNote(doc, chapter, i);
     });
 
-    tableY += 18;
-    doc
-      .moveTo(tableX, tableY)
-      .lineTo(545, tableY)
-      .strokeColor("#D1D5DB")
-      .stroke();
-    tableY += 6;
+    // ---- Overall strategy ----
+    ensureSpace(doc, 100);
+    resetX(doc);
+    doc.moveDown(0.5);
 
-    // Table rows
-    const priorityColors: Record<string, string> = {
-      High: "#DC2626",
-      Medium: "#D97706",
-      Low: "#16A34A",
-    };
+    doc.save()
+      .rect(MARGIN, doc.y, CONTENT_W, 2)
+      .fill("#D97706")
+      .restore();
+    doc.moveDown(1);
+    resetX(doc);
 
-    params.aiResult.chapters.forEach((chapter) => {
-      const color = priorityColors[chapter.priority] || "#374151";
-      const row = [
-        chapter.chapter_name,
-        String(chapter.frequency),
-        chapter.priority,
-        chapter.marks_weightage,
-      ];
+    doc.fontSize(13).fillColor("#D97706").font("Helvetica-Bold")
+      .text("Overall Exam Strategy", MARGIN, doc.y, { width: CONTENT_W });
+    doc.moveDown(0.5);
+    resetX(doc);
 
-      row.forEach((cell, i) => {
-        const x = tableX + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
-        doc
-          .fontSize(9)
-          .fillColor(i === 2 ? color : "#374151")
-          .text(cell, x, tableY, { width: colWidths[i] - 5, align: "left" });
+    doc.fontSize(11).fillColor("#374151").font("Helvetica")
+      .text(params.aiResult.overall_strategy_tip, MARGIN, doc.y, {
+        width: CONTENT_W,
+        lineBreak: true,
+        lineGap: 3,
       });
 
-      tableY += 18;
-
-      if (tableY > 750) {
-        doc.addPage();
-        tableY = 50;
-      }
-    });
-
-    doc.y = tableY + 10;
-    doc.moveDown(1);
-
-    // Divider
-    doc
-      .moveTo(50, doc.y)
-      .lineTo(545, doc.y)
-      .strokeColor("#E5E7EB")
-      .stroke();
-    doc.moveDown(1);
-
-    // Detailed study notes — all chapters
-    const chaptersWithNotes = params.aiResult.chapters.filter((c) => c.study_note);
-
-    if (chaptersWithNotes.length > 0) {
-      doc.fontSize(14).fillColor("#D97706").text("Detailed Study Notes");
-      doc.moveDown(0.5);
-
-      // High/Medium first, then Low
-      const ordered = [
-        ...chaptersWithNotes.filter((c) => c.priority === "High"),
-        ...chaptersWithNotes.filter((c) => c.priority === "Medium"),
-        ...chaptersWithNotes.filter((c) => c.priority === "Low"),
-      ];
-
-      ordered.forEach((chapter) => {
-        const color = priorityColors[chapter.priority] || "#374151";
-        const badgeMap: Record<string, string> = {
-          High: "HIGH PRIORITY",
-          Medium: "MEDIUM PRIORITY",
-          Low: "LOW PRIORITY",
-        };
-        const badge = badgeMap[chapter.priority] ?? chapter.priority.toUpperCase();
-
-        // Chapter heading + badge
-        doc.fontSize(12).fillColor("#1F2937").text(chapter.chapter_name, {
-          continued: true,
-        });
-        doc.fontSize(9).fillColor(color).text(`  [${badge}]`);
-
-        doc.moveDown(0.3);
-
-        // Study note
-        doc.fontSize(10).fillColor("#4B5563").text(chapter.study_note, { width: 495 });
-
-        // Key terms (only for High/Medium)
-        if (
-          (chapter.priority === "High" || chapter.priority === "Medium") &&
-          Array.isArray(chapter.key_terms) &&
-          chapter.key_terms.length > 0
-        ) {
-          doc.moveDown(0.3);
-          doc.fontSize(9).fillColor("#6B7280").text("Key Terms:", { continued: false });
-          chapter.key_terms.forEach((term) => {
-            doc.fontSize(9).fillColor("#374151").text(`  • ${term}`, { width: 495 });
-          });
-        }
-
-        doc.moveDown(0.8);
-
-        // Page break guard
-        if (doc.y > 720) {
-          doc.addPage();
-        }
-      });
-    }
-
-    // Overall strategy tip
-    doc.moveDown(0.5);
-    doc
-      .moveTo(50, doc.y)
-      .lineTo(545, doc.y)
-      .strokeColor("#E5E7EB")
-      .stroke();
-    doc.moveDown(1);
-
-    doc.fontSize(14).fillColor("#D97706").text("Exam Strategy Tip");
-    doc.moveDown(0.5);
-    doc
-      .fontSize(11)
-      .fillColor("#374151")
-      .text(params.aiResult.overall_strategy_tip, { width: 495 });
-
+    // ---- Footer ----
     doc.moveDown(2);
-    doc
-      .fontSize(9)
-      .fillColor("#9CA3AF")
-      .text("Generated by Smart Study Guide — Study Smart, Score More!", {
+    resetX(doc);
+    doc.fontSize(8).fillColor("#9CA3AF").font("Helvetica")
+      .text("Generated by Smart Study Guide  ·  Study Smart, Score More!", MARGIN, doc.y, {
+        width: CONTENT_W,
         align: "center",
       });
 

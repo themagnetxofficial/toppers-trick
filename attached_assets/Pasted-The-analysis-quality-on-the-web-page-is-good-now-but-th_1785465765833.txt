@@ -1,0 +1,20 @@
+The analysis quality on the web page is good now, but the generated PDF has serious problems. Please fix the following:
+
+**Problem 1: Study notes are getting cut off mid-sentence in the PDF**
+For example, the HRM chapter shows "(a) Kya padhna hai: Focus on key topics like" and then just stops — no continuation. Same happens for Performance Appraisal ("Pay attention to") and Industrial Relations ("Prepare for"). The full note text is clearly not being rendered — it looks like either the PDF generation is truncating the string, or it's not wrapping/flowing the text into a new line and instead just cutting it off at a fixed width/position.
+
+**Problem 2: Only part (a) of the three-part note is appearing in the PDF**
+We updated the AI prompt earlier to generate a three-part note structure: (a) Kya padhna hai, (b) Kaise poochha jaata hai, (c) Repeat pattern. On the web results page this likely shows correctly, but in the PDF, only part (a) appears (and even that is cut off) — parts (b) and (c) are completely missing. Check the PDF generation code to see if it's only reading/printing a portion of the study_note field, or if there's a bug where only the first sentence or first X characters are being passed to the PDF renderer.
+
+**Problem 3: A chapter is showing the placeholder name "Low Priority Chapter" instead of its real name**
+In the Chapter Priority Summary table, one row shows "Low Priority Chapter" — this is clearly a fallback/placeholder label, not an actual chapter name like the AI would have identified from the papers (e.g., it should show something like "SHRM" or whatever the real low-priority chapter is called). Find where this placeholder is being used instead of the actual `chapter_name` field and fix it.
+
+**Problem 4: Overall PDF layout and formatting needs improvement**
+The current PDF looks cramped and hard to read — text is tightly packed with little visual separation between chapters. Please improve the layout so it looks like a proper study guide a student would actually want to read:
+- Add proper spacing between each chapter's section (not just a heading, actual visual breathing room)
+- Make sure the three-part note structure (a/b/c) is clearly visually separated — e.g., each part on its own line or with a small label styled distinctly, not run together
+- Ensure text wraps properly within the page margins and never gets cut off regardless of note length
+- Key terms should appear as a clearly separated list/chip style, similar to how it might look on the web page
+- Add some visual hierarchy — chapter name should stand out, priority badge should be colored, and the note content should be easy to scan
+
+Please fix all four issues, then generate a fresh test PDF from the same analysis I already ran (the one with the HRM papers) and confirm every chapter's full note text (all three parts) appears completely and correctly, with the actual chapter name showing (not any placeholder), before telling me it's done.
