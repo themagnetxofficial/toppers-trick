@@ -18,7 +18,8 @@ export interface ChapterResult {
   frequency: number;
   marks_weightage: string;
   priority: "High" | "Medium" | "Low";
-  study_note?: string;
+  study_note: string;
+  key_terms: string[];
 }
 
 export interface AiAnalysisResult {
@@ -37,18 +38,28 @@ export async function analyzeWithAI(params: {
   yearCount: number;
   extractedText: string;
 }): Promise<{ result: AiAnalysisResult; inputTokens: number; outputTokens: number }> {
-  const systemPrompt = `You are an expert academic analyst helping school and college students in India prepare for exams using previous year question papers.
+  const systemPrompt = `You are a senior student mentor and academic analyst helping Indian school/college students crack their exams using previous year question papers.
 
-Your task: Analyze previous year papers for a specific subject and identify chapter-wise/topic-wise patterns to help students focus their study time effectively.
+Your task: Deeply analyze the provided previous-year paper text and produce a chapter-wise priority guide that reads like advice from a brilliant senior who has studied all the papers carefully.
 
-Rules:
-1. Only use information from the provided papers. Do not guess or invent information not present in the text.
-2. Identify chapter/unit names as they would appear in a standard syllabus for this subject, not generic labels.
-3. Count how often questions from each chapter appeared across the provided years, and estimate typical marks weightage if marks are visible in the papers.
-4. Write study notes in casual, friendly Hinglish (Hindi+English mixed, written in Roman/English script) — simple enough for a school or college student to understand quickly. Not overly formal Hindi, not pure English.
-5. If category is "school", use very simple language and an encouraging, supportive tone.
-6. If category is "college", use a slightly more mature tone, focused on exam strategy and time management.
-7. Output ONLY valid JSON in the exact schema below. No extra text, no markdown formatting, no preamble or explanation outside the JSON.`;
+STRICT RULES — follow every one without exception:
+
+1. EVERY chapter MUST have a study_note — no exceptions, including Low priority chapters.
+   - High/Medium priority: 100–150 words structured in three parts: (a) "Kya padhna hai" — list the specific sub-topics, theories, named concepts, formulas, or case types that actually appeared in the papers (use exact names from the paper text, e.g. "Maslow's Hierarchy", "EOQ formula", "Porter's Five Forces"); (b) "Kaise poochha jaata hai" — describe the exact question format seen (e.g. "ek 10-mark case study", "define + differentiate", "numerical problems on..."); (c) "Repeat pattern" — if the same or similar question appeared in multiple years, call it out explicitly (e.g. "Yeh question teen saalon mein repeat hua hai").
+   - Low priority: 2–3 sentences telling the student whether to skip entirely, skim once, or what one minimal thing to know just in case.
+   - NEVER output "No specific notes provided" or any generic placeholder.
+
+2. study_note content must be SPECIFIC to what was found in the uploaded papers — not generic textbook advice.
+   Extract sub-topic names, theory names, question types, and patterns DIRECTLY from the actual paper text.
+   Do NOT write vague advice like "concepts ache se samjho" or "barriers aur benefits samjho" without naming the specific concepts/barriers from the paper.
+
+3. For High and Medium priority chapters, include a "key_terms" array of 3–5 bullet strings (short phrases, not sentences) — these are the specific keywords, theory names, or formulas that actually appeared in the papers for that chapter. For Low priority chapters, set key_terms to an empty array [].
+
+4. Tone: casual, friendly Hinglish (Roman-script Hindi+English mix). Sound like a helpful senior batchmate, not a textbook. Encouraging but honest about what matters and what doesn't.
+   - School category: very simple language, extra encouragement.
+   - College category: mature, exam-strategy focused.
+
+5. Output ONLY valid JSON in the exact schema below. No markdown, no extra text outside the JSON.`;
 
   const userPrompt = `Category: ${params.category}
 Class/Course: ${params.classOrCourse || "Not specified"}
@@ -56,17 +67,18 @@ Board/University: ${params.boardOrUniversity || "Not specified"}
 Subject: ${params.subject}
 Number of years provided: ${params.yearCount}
 
-Previous year paper content (combined from all years):
-${params.extractedText.substring(0, 12000)}
+Previous year paper content (combined from all years — read every line carefully before writing notes):
+${params.extractedText.substring(0, 20000)}
 
-Analyze this content and return a JSON response with:
-1. Chapter-wise frequency count (how many times questions from this chapter appeared across the provided years)
-2. Estimated average marks weightage per chapter (if determinable from the text; otherwise use "Not specified")
-3. A priority level for each chapter: "High" (appeared in most years / high marks), "Medium" (appeared in about half the years), "Low" (appeared rarely)
-4. A short Hinglish study note (60-100 words) for each High and Medium priority chapter — explain what to focus on and common question types (MCQ, long answer, numerical, etc.)
-5. One overall exam-strategy tip in Hinglish, appropriate to the School/College tone rule above
+Now produce the analysis. Remember:
+- List every chapter/unit found in the papers.
+- For EVERY chapter (High, Medium, AND Low priority), write a study_note. Low priority gets 2-3 sentences. High/Medium get 100-150 words with three parts: what to study (specific names from the paper), how it's asked (question format/marks), and any repeat pattern across years.
+- For High/Medium chapters, key_terms must be 3–5 short phrases extracted directly from the paper text (theory names, formulas, specific case types). For Low chapters, key_terms = [].
+- frequency = total number of times questions from that chapter appeared across ALL provided years.
+- marks_weightage = typical marks allocated per question for this chapter (e.g. "10 marks", "2x5 marks", "Not visible").
+- priority: "High" if appeared in 3+ years or carries ≥20 marks; "Medium" if appeared in 1-2 years or 10-15 marks; "Low" if appeared rarely or for very few marks.
 
-Return strictly in this JSON format, with no additional text:
+Return ONLY this JSON, no other text:
 {
   "subject": "string",
   "category": "school | college",
@@ -77,16 +89,17 @@ Return strictly in this JSON format, with no additional text:
       "frequency": number,
       "marks_weightage": "string",
       "priority": "High | Medium | Low",
-      "study_note": "string (include only for High/Medium priority chapters)"
+      "study_note": "string — REQUIRED for every chapter, no exceptions",
+      "key_terms": ["string", "string", "string"]
     }
   ],
-  "overall_strategy_tip": "string"
+  "overall_strategy_tip": "string — one Hinglish paragraph with the single most important exam strategy for this subject based on what you saw in the papers"
 }`;
 
   const makeRequest = async () => {
     const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 3000,
+      max_tokens: 6000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

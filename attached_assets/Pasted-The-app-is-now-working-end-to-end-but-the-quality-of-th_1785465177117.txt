@@ -1,0 +1,19 @@
+The app is now working end to end, but the quality of the AI-generated analysis needs significant improvement. Right now the output is too generic and some chapters show "No specific notes provided" (this happens for Low priority chapters, since the current prompt only asks for notes on High/Medium priority ones).
+
+Please update the AI analysis prompt (the one used when calling the OpenAI API for chapter analysis) to produce much more detailed, specific, and practical output. Replace the current prompt logic with the following requirements:
+
+1. **Every chapter must have a study note — no exceptions.** Even Low priority chapters need at least a brief, useful note (2-3 sentences) telling the student whether to skip it, skim it, or what minimal thing to know just in case. Never output "No specific notes provided."
+
+2. **Study notes must be specific, not generic.** Instead of vague statements like "concepts ache se samjho" or "barriers aur benefits samjho", the note must name the actual sub-topics, theories, formulas, or named concepts that appeared in the papers (e.g., "Maslow's theory aur Herzberg's theory dono baar baar puche gaye hain, especially unka comparison"). Extract these specifics directly from the actual question text in the uploaded papers — don't generate generic textbook advice.
+
+3. **Include the exact question pattern observed**, where identifiable from the papers — e.g., "Is chapter se generally ek 10-marks case study aata hai, aur ek short definition-based question." Mention if the same or very similar question has repeated across multiple years (this is high-value information for the student).
+
+4. **Increase the note length for High and Medium priority chapters** to roughly 100-150 words, so it reads like real exam guidance from a senior/mentor, not a one-line summary. Structure it internally as: (a) what specifically to focus on, (b) how it's usually asked (question type/format), (c) any repeated or recurring question pattern noticed.
+
+5. **Add a "Key terms to remember" or "Important points" mini-list** (3-5 bullet points) within each High/Medium priority chapter's note where applicable, extracted from the actual paper content — not generic textbook keywords.
+
+6. Keep the tone Hinglish, casual, and encouraging — as already implemented — just make the substance much richer and clearly tied to what was actually found in the uploaded papers, not generic subject knowledge.
+
+After updating the prompt, re-run a test analysis using the same sample papers I already uploaded (MBA HR Management, 4 years) and show me the new output so I can review the quality improvement directly.
+
+Also note: since we're asking for longer, richer output per chapter now, check whether the current `max_tokens` setting on the API call is high enough to avoid the response getting cut off — increase it if needed.

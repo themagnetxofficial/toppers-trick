@@ -494,7 +494,7 @@ describe("POST /api/analyses/:id/retry", () => {
       chain.then = vi.fn().mockImplementation((fn: (v: unknown[]) => unknown) =>
         Promise.resolve(rows).then(fn)
       );
-      return chain as ReturnType<typeof db.update>;
+      return chain as unknown as ReturnType<typeof db.update>;
     };
 
     vi.mocked(db.update)
@@ -541,7 +541,7 @@ describe("POST /api/analyses/:id/retry", () => {
       chain.then = vi.fn().mockImplementation((fn: (v: unknown[]) => unknown) =>
         Promise.resolve(rows).then(fn)
       );
-      return chain as ReturnType<typeof db.update>;
+      return chain as unknown as ReturnType<typeof db.update>;
     };
 
     // Status transition returns 0 rows → concurrent retry already won the slot.
@@ -587,7 +587,7 @@ describe("POST /api/analyses/:id/retry", () => {
       chain.then = vi.fn().mockImplementation((fn: (v: unknown[]) => unknown) =>
         Promise.resolve(rows).then(fn)
       );
-      return chain as ReturnType<typeof db.update>;
+      return chain as unknown as ReturnType<typeof db.update>;
     };
 
     vi.mocked(db.update).mockClear();

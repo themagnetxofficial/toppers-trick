@@ -191,9 +191,9 @@ export default function AnalysisResultPage() {
                   {chapter.chapter_name}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex-1 pb-6">
+              <CardContent className="flex-1 pb-6 space-y-3">
                 {chapter.study_note ? (
-                  <div className="bg-muted/50 rounded-lg p-4 h-full border border-border/50">
+                  <div className="bg-muted/50 rounded-lg p-4 border border-border/50">
                     <div className="flex items-start gap-2">
                       <Sparkles className="w-4 h-4 text-primary mt-1 shrink-0" />
                       <p className="text-sm text-foreground/80 leading-relaxed">{chapter.study_note}</p>
@@ -201,7 +201,19 @@ export default function AnalysisResultPage() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground italic p-2">
-                    <Info className="w-4 h-4" /> No specific notes provided.
+                    <Info className="w-4 h-4" /> Study notes not available.
+                  </div>
+                )}
+                {Array.isArray((chapter as { key_terms?: string[] }).key_terms) && (chapter as { key_terms?: string[] }).key_terms!.length > 0 && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                    <p className="text-xs font-semibold text-primary mb-2 uppercase tracking-wider">Key Terms</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(chapter as { key_terms?: string[] }).key_terms!.map((term, ti) => (
+                        <span key={ti} className="inline-block bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs text-foreground/80 font-medium">
+                          {term}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </CardContent>

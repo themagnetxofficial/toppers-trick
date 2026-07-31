@@ -160,38 +160,59 @@ export function generateStudyGuidePdf(params: {
       .stroke();
     doc.moveDown(1);
 
-    // Detailed study notes
-    const highMedChapters = params.aiResult.chapters.filter(
-      (c) =>
-        (c.priority === "High" || c.priority === "Medium") && c.study_note
-    );
+    // Detailed study notes — all chapters
+    const chaptersWithNotes = params.aiResult.chapters.filter((c) => c.study_note);
 
-    if (highMedChapters.length > 0) {
-      doc.fontSize(14).fillColor("#D97706").text("Study Notes");
+    if (chaptersWithNotes.length > 0) {
+      doc.fontSize(14).fillColor("#D97706").text("Detailed Study Notes");
       doc.moveDown(0.5);
 
-      highMedChapters.forEach((chapter) => {
-        const color = priorityColors[chapter.priority] || "#374151";
-        const badge = chapter.priority === "High" ? "HIGH PRIORITY" : "MEDIUM PRIORITY";
+      // High/Medium first, then Low
+      const ordered = [
+        ...chaptersWithNotes.filter((c) => c.priority === "High"),
+        ...chaptersWithNotes.filter((c) => c.priority === "Medium"),
+        ...chaptersWithNotes.filter((c) => c.priority === "Low"),
+      ];
 
+      ordered.forEach((chapter) => {
+        const color = priorityColors[chapter.priority] || "#374151";
+        const badgeMap: Record<string, string> = {
+          High: "HIGH PRIORITY",
+          Medium: "MEDIUM PRIORITY",
+          Low: "LOW PRIORITY",
+        };
+        const badge = badgeMap[chapter.priority] ?? chapter.priority.toUpperCase();
+
+        // Chapter heading + badge
         doc.fontSize(12).fillColor("#1F2937").text(chapter.chapter_name, {
           continued: true,
         });
-        doc
-          .fontSize(9)
-          .fillColor(color)
-          .text(`  [${badge}]`);
+        doc.fontSize(9).fillColor(color).text(`  [${badge}]`);
 
         doc.moveDown(0.3);
 
-        if (chapter.study_note) {
-          doc
-            .fontSize(10)
-            .fillColor("#4B5563")
-            .text(chapter.study_note, { width: 495 });
+        // Study note
+        doc.fontSize(10).fillColor("#4B5563").text(chapter.study_note, { width: 495 });
+
+        // Key terms (only for High/Medium)
+        if (
+          (chapter.priority === "High" || chapter.priority === "Medium") &&
+          Array.isArray(chapter.key_terms) &&
+          chapter.key_terms.length > 0
+        ) {
+          doc.moveDown(0.3);
+          doc.fontSize(9).fillColor("#6B7280").text("Key Terms:", { continued: false });
+          chapter.key_terms.forEach((term) => {
+            doc.fontSize(9).fillColor("#374151").text(`  • ${term}`, { width: 495 });
+          });
         }
 
         doc.moveDown(0.8);
+
+        // Page break guard
+        if (doc.y > 720) {
+          doc.addPage();
+        }
       });
     }
 
