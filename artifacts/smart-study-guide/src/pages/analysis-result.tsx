@@ -1,10 +1,10 @@
 import { useParams } from "wouter";
-import { useGetAnalysis, useDownloadAnalysisPdf } from "@workspace/api-client-react";
+import { useGetAnalysis, useDownloadAnalysisPdf, useRetryAnalysis } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info } from "lucide-react";
+import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,21 @@ export default function AnalysisResultPage() {
 
   const { refetch: getPdfUrl } = useDownloadAnalysisPdf(id, {
     query: { enabled: false } // only fetch when clicked
+  });
+
+  const { mutate: retryAnalysis, isPending: isRetrying } = useRetryAnalysis({
+    mutation: {
+      onSuccess: () => {
+        toast.success("Retry started! Your credit has been deducted. Refreshing shortly…");
+      },
+      onError: (err: unknown) => {
+        const msg =
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message: string }).message)
+            : "Failed to start retry. Please try again.";
+        toast.error(msg);
+      },
+    },
   });
 
   if (isLoading) {
@@ -59,10 +74,23 @@ export default function AnalysisResultPage() {
   if (analysis.status === 'failed') {
     return (
       <Card className="max-w-2xl mx-auto border-destructive bg-destructive/5">
-        <CardContent className="p-12 text-center flex flex-col items-center">
-          <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-          <h2 className="text-xl font-bold font-serif mb-2 text-destructive">Analysis Failed</h2>
-          <p className="text-muted-foreground">{analysis.errorMessage || "Something went wrong while analyzing your papers."}</p>
+        <CardContent className="p-12 text-center flex flex-col items-center gap-4">
+          <AlertTriangle className="h-12 w-12 text-destructive mb-2" />
+          <h2 className="text-xl font-bold font-serif text-destructive">Analysis Failed</h2>
+          <p className="text-muted-foreground">
+            {analysis.errorMessage || "Something went wrong while analyzing your papers."}
+          </p>
+          <Button
+            onClick={() => retryAnalysis({ id })}
+            disabled={isRetrying}
+            className="mt-2 rounded-full gap-2"
+          >
+            <RefreshCw className={cn("w-4 h-4", isRetrying && "animate-spin")} />
+            {isRetrying ? "Starting retry…" : "Retry Analysis"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Retrying will deduct 1 credit from your balance.
+          </p>
         </CardContent>
       </Card>
     );

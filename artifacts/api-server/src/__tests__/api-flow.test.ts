@@ -386,6 +386,259 @@ describe("GET /api/analyses/:id", () => {
 
 // ---------------------------------------------------------------------------
 
+describe("POST /api/analyses/:id/retry", () => {
+  it("returns 404 when analysis does not exist", async () => {
+    dbState.analysis = null;
+    const res = await request(app).post("/api/analyses/9999/retry");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 when analysis is still processing", async () => {
+    dbState.analysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "processing",
+      inputFilePaths: [],
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: null,
+      createdAt: new Date().toISOString(),
+    };
+    const res = await request(app).post("/api/analyses/42/retry");
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 422 when input files are missing", async () => {
+    dbState.analysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "failed",
+      inputFilePaths: ["/nonexistent/file.pdf"],
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: "AI error",
+      createdAt: new Date().toISOString(),
+    };
+    const res = await request(app).post("/api/analyses/42/retry");
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 402 when user has no credits for retry", async () => {
+    const fakePath = path.join(uploadsDir, "retry-paper.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+
+    dbState.analysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "failed",
+      inputFilePaths: [fakePath],
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: "AI error",
+      createdAt: new Date().toISOString(),
+    };
+
+    const original = dbState.credits;
+    dbState.credits = { ...original, creditsRemaining: 0 };
+    const res = await request(app).post("/api/analyses/42/retry");
+    dbState.credits = original;
+    expect(res.status).toBe(402);
+  });
+
+  it("resets status to processing and returns 200 when retry is valid", async () => {
+    const fakePath = path.join(uploadsDir, "retry-paper-2.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+
+    const failedAnalysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "failed",
+      inputFilePaths: [fakePath],
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: "AI error",
+      createdAt: new Date().toISOString(),
+    };
+    dbState.analysis = failedAnalysis;
+
+    const { db } = await import("@workspace/db");
+
+    // New retry flow calls db.update in this order:
+    //   1st: conditional status transition (analysesTable, WHERE status='failed') — returns the claimed row
+    //   2nd: atomic credit decrement (creditsTable, SQL expression) — returns updated credits row
+    const makeUpdateChain = (rows: unknown[]) => {
+      const chain: Record<string, unknown> = {};
+      chain.set = vi.fn().mockReturnThis();
+      chain.where = vi.fn().mockReturnThis();
+      chain.returning = vi.fn().mockResolvedValue(rows);
+      chain.then = vi.fn().mockImplementation((fn: (v: unknown[]) => unknown) =>
+        Promise.resolve(rows).then(fn)
+      );
+      return chain as ReturnType<typeof db.update>;
+    };
+
+    vi.mocked(db.update)
+      .mockImplementationOnce(() =>                        // 1st: claim the retry slot
+        makeUpdateChain([{ ...failedAnalysis, status: "processing", errorMessage: null }])
+      )
+      .mockImplementationOnce(() =>                        // 2nd: atomic credit decrement
+        makeUpdateChain([{ ...dbState.credits, creditsRemaining: 1 }])
+      );
+
+    const res = await request(app).post("/api/analyses/42/retry");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("processing");
+    expect(res.body.errorMessage).toBeNull();
+  });
+
+  it("returns 409 when concurrent retry already claimed the slot", async () => {
+    const fakePath = path.join(uploadsDir, "retry-concurrent.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+
+    dbState.analysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "failed",
+      inputFilePaths: [fakePath],
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: "AI error",
+      createdAt: new Date().toISOString(),
+    };
+
+    const { db } = await import("@workspace/db");
+
+    const makeUpdateChain = (rows: unknown[]) => {
+      const chain: Record<string, unknown> = {};
+      chain.set = vi.fn().mockReturnThis();
+      chain.where = vi.fn().mockReturnThis();
+      chain.returning = vi.fn().mockResolvedValue(rows);
+      chain.then = vi.fn().mockImplementation((fn: (v: unknown[]) => unknown) =>
+        Promise.resolve(rows).then(fn)
+      );
+      return chain as ReturnType<typeof db.update>;
+    };
+
+    // Status transition returns 0 rows → concurrent retry already won the slot.
+    // The endpoint must return 409 immediately WITHOUT touching credits.
+    vi.mocked(db.update).mockClear();
+    vi.mocked(db.update)
+      .mockImplementationOnce(() => makeUpdateChain([])); // status transition: race lost
+
+    const res = await request(app).post("/api/analyses/42/retry");
+    expect(res.status).toBe(409);
+    // Only 1 db.update call (status transition only) — credits must NOT be touched.
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(1);
+  });
+
+  it("reverts status to failed and returns 402 when credit runs out between pre-check and deduction", async () => {
+    const fakePath = path.join(uploadsDir, "retry-nocredit.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+
+    const failedAnalysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "failed",
+      inputFilePaths: [fakePath],
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: "AI error",
+      createdAt: new Date().toISOString(),
+    };
+    dbState.analysis = failedAnalysis;
+
+    const { db } = await import("@workspace/db");
+
+    const makeUpdateChain = (rows: unknown[]) => {
+      const chain: Record<string, unknown> = {};
+      chain.set = vi.fn().mockReturnThis();
+      chain.where = vi.fn().mockReturnThis();
+      chain.returning = vi.fn().mockResolvedValue(rows);
+      chain.then = vi.fn().mockImplementation((fn: (v: unknown[]) => unknown) =>
+        Promise.resolve(rows).then(fn)
+      );
+      return chain as ReturnType<typeof db.update>;
+    };
+
+    vi.mocked(db.update).mockClear();
+    vi.mocked(db.update)
+      .mockImplementationOnce(() =>                        // 1st: status transition succeeds
+        makeUpdateChain([{ ...failedAnalysis, status: "processing", errorMessage: null }])
+      )
+      .mockImplementationOnce(() => makeUpdateChain([]))   // 2nd: credit decrement returns 0 rows (drained)
+      .mockImplementationOnce(() => makeUpdateChain([]));  // 3rd: revert status to failed
+
+    const res = await request(app).post("/api/analyses/42/retry");
+    expect(res.status).toBe(402);
+    // Status revert must have been called — 3 db.update calls total
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("GET /api/analyses/:id - error message sanitization", () => {
+  it("returns a generic error message for failed analyses (never raw internal errors)", async () => {
+    dbState.analysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "failed",
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: "OpenAI rate limit exceeded: 429 Too Many Requests",
+      createdAt: new Date().toISOString(),
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("failed");
+    // Must NOT contain internal error details
+    expect(res.body.errorMessage).not.toMatch(/openai/i);
+    expect(res.body.errorMessage).not.toMatch(/rate limit/i);
+    expect(res.body.errorMessage).not.toMatch(/429/);
+    // Must contain a user-friendly message
+    expect(typeof res.body.errorMessage).toBe("string");
+    expect(res.body.errorMessage.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
 describe("GET /api/analyses/:id/download", () => {
   it("returns 404 when analysis has no PDF", async () => {
     dbState.analysis = {

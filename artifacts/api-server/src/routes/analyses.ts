@@ -1,5 +1,5 @@
 import { Router, IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import {
   db,
   analysesTable,
@@ -227,11 +227,12 @@ async function processAnalysis(
       .set({ status: "failed", errorMessage })
       .where(eq(analysesTable.id, analysisId));
 
-    // Refund the credit if not already refunded
+    // Atomically refund the credit (increment by 1 to avoid overwriting
+    // concurrent credit changes with a stale snapshot value).
     if (!creditRefunded) {
       await db
         .update(creditsTable)
-        .set({ creditsRemaining: params.credits.creditsRemaining })
+        .set({ creditsRemaining: sql`${creditsTable.creditsRemaining} + 1` })
         .where(eq(creditsTable.userId, params.userId));
     }
   }
@@ -268,12 +269,148 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
       subject: analysis.subject,
       yearsAnalyzed: analysis.yearsAnalyzed,
       status: analysis.status,
-      errorMessage: analysis.errorMessage,
+      // Never leak raw internal error details to the client.
+      // If the analysis failed, return a generic user-facing message only.
+      errorMessage:
+        analysis.status === "failed"
+          ? "Analysis could not be completed. Your credit has been refunded."
+          : null,
       aiResponse: analysis.aiResponseJson ?? undefined,
       hasPdf: !!analysis.pdfFilePath,
       createdAt: analysis.createdAt,
     })
   );
+});
+
+router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> => {
+  const params = GetAnalysisParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+
+  const analysis = await db
+    .select()
+    .from(analysesTable)
+    .where(and(eq(analysesTable.id, id), eq(analysesTable.userId, req.userId!)))
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  if (!analysis) {
+    res.status(404).json({ error: "Analysis not found" });
+    return;
+  }
+
+  if (analysis.status !== "failed") {
+    res.status(409).json({ error: "Only failed analyses can be retried." });
+    return;
+  }
+
+  // Validate that input files still exist
+  const filePaths = (analysis.inputFilePaths ?? []) as string[];
+  if (!filePaths.length) {
+    res.status(422).json({ error: "Input files are no longer available. Cannot retry." });
+    return;
+  }
+  for (const fp of filePaths) {
+    if (!fs.existsSync(path.resolve(fp))) {
+      res.status(422).json({ error: "Uploaded files have expired. Please start a new analysis." });
+      return;
+    }
+  }
+
+  // Lightweight pre-check so we surface a clear 402 before touching any data.
+  const credits = await db
+    .select()
+    .from(creditsTable)
+    .where(eq(creditsTable.userId, req.userId!))
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  if (!credits || credits.creditsRemaining <= 0) {
+    res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
+    return;
+  }
+
+  // ─── Step 1: atomically claim the retry slot ──────────────────────────────
+  // The WHERE clause requires status = 'failed', so only one concurrent
+  // request can win.  All others receive an empty RETURNING → 409.
+  const claimed = await db
+    .update(analysesTable)
+    .set({ status: "processing", errorMessage: null })
+    .where(
+      and(
+        eq(analysesTable.id, id),
+        eq(analysesTable.userId, req.userId!),
+        eq(analysesTable.status, "failed")
+      )
+    )
+    .returning();
+
+  if (!claimed.length) {
+    res.status(409).json({ error: "Analysis is already being retried." });
+    return;
+  }
+
+  const [updatedAnalysis] = claimed;
+
+  // ─── Step 2: atomically deduct 1 credit (SQL expression, no snapshot) ────
+  // Using a SQL-level decrement avoids the stale-read race: the DB computes
+  // the new value itself.  The `creditsRemaining > 0` guard ensures we never
+  // go below zero; an empty RETURNING means we were beaten by a concurrent
+  // operation that already drained the balance.
+  const deducted = await db
+    .update(creditsTable)
+    .set({ creditsRemaining: sql`${creditsTable.creditsRemaining} - 1` })
+    .where(
+      and(
+        eq(creditsTable.userId, req.userId!),
+        sql`${creditsTable.creditsRemaining} > 0`
+      )
+    )
+    .returning();
+
+  if (!deducted.length) {
+    // Edge case: credits ran out between the pre-check and this write.
+    // Revert the status back to "failed" so the user can retry again later.
+    await db
+      .update(analysesTable)
+      .set({ status: "failed", errorMessage: "Insufficient credits." })
+      .where(eq(analysesTable.id, id));
+    res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
+    return;
+  }
+
+  // Respond immediately, then process in background
+  res.status(200).json(
+    GetAnalysisResponse.parse({
+      id: updatedAnalysis.id,
+      category: updatedAnalysis.category,
+      classOrCourse: updatedAnalysis.classOrCourse,
+      boardOrUniversity: updatedAnalysis.boardOrUniversity,
+      subject: updatedAnalysis.subject,
+      yearsAnalyzed: updatedAnalysis.yearsAnalyzed,
+      status: updatedAnalysis.status,
+      errorMessage: null,
+      hasPdf: !!updatedAnalysis.pdfFilePath,
+      createdAt: updatedAnalysis.createdAt,
+    })
+  );
+
+  processAnalysis(id, {
+    category: analysis.category,
+    classOrCourse: analysis.classOrCourse ?? "",
+    boardOrUniversity: analysis.boardOrUniversity ?? "",
+    subject: analysis.subject,
+    filePaths,
+    userId: req.userId!,
+    credits,
+  }).catch((err) => {
+    logger.error({ err, analysisId: id }, "Background retry processing failed");
+  });
 });
 
 router.get(
