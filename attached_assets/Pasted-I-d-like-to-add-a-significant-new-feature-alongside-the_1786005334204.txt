@@ -1,0 +1,25 @@
+I'd like to add a significant new feature: alongside the existing "what to focus on" chapter analysis, the PDF (and results page) should also include actual study material for the important topics — real definitions, key points, and a short explanation a student can directly study from, written in Hinglish. Right now we only tell students WHAT to focus on; we should also give them something to actually READ and learn from.
+
+Please implement this as follows:
+
+**Scope:** Generate this actual study content only for High and Medium priority chapters (skip Low priority chapters for this — they can just keep the short "skim it" note they already have). This keeps the output focused and prevents the PDF from becoming excessively long.
+
+**Content to generate per chapter (in addition to what we already have):**
+1. **Definition/Overview** (2-3 sentences) — a clear, simple definition or overview of the chapter's core concept, in Hinglish.
+2. **Key Points** (4-6 bullet points) — the essential things a student must know about this topic, written simply, each point 1-2 lines.
+3. **Short Explanation** (100-150 words) — a slightly deeper but still simple explanation of the most important concept(s) within this chapter (the ones identified as high-frequency from the papers), written like a teacher explaining it to a student who's studying last-minute, in Hinglish.
+
+**Important content quality rules:**
+- This must be original, AI-generated educational explanation — written fresh in the AI's own words, not copied from any textbook or external source.
+- Keep the language simple and exam-focused — no unnecessary jargon, no textbook-style dense paragraphs.
+- Base the topic selection within "Key Points" and "Short Explanation" on what's specifically relevant given the sub-topics/keywords already identified in this chapter's existing analysis (the key terms and question patterns we already extract) — so the study material is targeted to what's actually likely to be asked, not generic chapter-wide theory.
+
+**Where this should appear:**
+- On the results page, add a new expandable/separate section per chapter (e.g., "Study Notes" tab or accordion below the existing exam-strategy note) so students can toggle between "exam strategy" view and "study material" view.
+- In the PDF, add this as a new section after the existing "Detailed Study Notes" section — could be titled "Chapter Notes — Padhne Ke Liye" or similar, structured clearly with the Definition/Key Points/Explanation for each High/Medium priority chapter.
+
+**Technical considerations:**
+- This will require either extending the existing AI prompt to also generate this content in the same call, or a second AI call — please choose whichever is more reliable and keeps token usage reasonable. If extending the existing prompt, make sure `max_tokens` is increased further to accommodate this additional content without truncation.
+- Since we're generating meaningfully more content per chapter now, monitor and let me know if the total tokens per analysis increases significantly — I want to keep track of the cost impact.
+
+Please implement this, run a fresh test analysis on the same sample papers, and show me both the results page and the PDF output so I can review the quality of the actual study content generated.

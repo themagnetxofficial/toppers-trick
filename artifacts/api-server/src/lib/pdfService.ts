@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { AiAnalysisResult, ChapterResult } from "./openai";
+import { AiAnalysisResult, ChapterResult, StudyContent } from "./openai";
 import path from "path";
 import fs from "fs";
 
@@ -571,6 +571,121 @@ function renderStrategyTiers(
 }
 
 // ---------------------------------------------------------------------------
+// Study content renderer — "Chapter Notes: Padhne Ke Liye"
+// ---------------------------------------------------------------------------
+
+function renderStudyContentSection(
+  doc: InstanceType<typeof PDFDocument>,
+  chapters: ChapterResult[]
+) {
+  newPage(doc);
+
+  doc.fontSize(20).fillColor("#D97706").font("Kalam-Bold")
+    .text("Chapter Notes — Padhne Ke Liye", MARGIN, doc.y, { width: CONTENT_W });
+  doc.moveDown(0.2);
+  doc.fontSize(10).fillColor("#6B7280").font("Helvetica")
+    .text(
+      "Yeh actual study material hai — definitions, key points aur explanations jo exam mein directly kaam aayenge.",
+      MARGIN, doc.y, { width: CONTENT_W }
+    );
+  doc.moveDown(0.8);
+  hRule(doc, "#D97706", 1);
+
+  chapters.forEach((chapter) => {
+    const sc = chapter.study_content as StudyContent;
+    const pColor = PRIORITY_COLORS[chapter.priority] ?? "#374151";
+
+    // Estimate block height for page-break guard
+    const kpHeight = (sc.key_points?.length ?? 0) * 14;
+    const defHeight = estimateTextHeight(doc, sc.definition ?? "", 10, CONTENT_W);
+    const expHeight = estimateTextHeight(doc, sc.explanation ?? "", 10, CONTENT_W);
+    const blockH = 24 + defHeight + kpHeight + expHeight + 80;
+    ensureSpace(doc, Math.min(blockH, 300));
+
+    const startY = doc.y;
+
+    // Left accent bar
+    doc.save().rect(MARGIN, startY, 4, 16).fill(pColor).restore();
+
+    // Chapter heading
+    doc.fontSize(14).fillColor(pColor).font("Kalam-Bold")
+      .text(chapter.chapter_name, MARGIN + 12, startY, { width: CONTENT_W - 12 });
+    doc.moveDown(0.5);
+    resetX(doc);
+
+    // ---- Definition ----
+    if (sc.definition) {
+      doc.fontSize(10.5).fillColor(pColor).font("Kalam-Bold")
+        .text("📖  Definition:", MARGIN, doc.y, { width: CONTENT_W });
+      doc.moveDown(0.1);
+      resetX(doc);
+      doc.fontSize(10).fillColor("#1F2937").font("Helvetica")
+        .text(sc.definition, MARGIN + 8, doc.y, {
+          width: CONTENT_W - 8,
+          lineBreak: true,
+          lineGap: 2,
+        });
+      doc.moveDown(0.5);
+      resetX(doc);
+    }
+
+    // ---- Key Points ----
+    if (sc.key_points?.length) {
+      ensureSpace(doc, sc.key_points.length * 14 + 20);
+      doc.fontSize(10.5).fillColor(pColor).font("Kalam-Bold")
+        .text("📌  Key Points:", MARGIN, doc.y, { width: CONTENT_W });
+      doc.moveDown(0.15);
+      sc.key_points.forEach((point) => {
+        resetX(doc);
+        ensureSpace(doc, 18);
+        doc.fontSize(10).fillColor("#1F2937").font("Helvetica")
+          .text(`  •  ${point}`, MARGIN + 8, doc.y, {
+            width: CONTENT_W - 8,
+            lineBreak: true,
+            lineGap: 1,
+          });
+        doc.moveDown(0.2);
+      });
+      doc.moveDown(0.2);
+      resetX(doc);
+    }
+
+    // ---- Short Explanation ----
+    if (sc.explanation) {
+      ensureSpace(doc, 60);
+      // Subtle amber background box for the explanation
+      const expY = doc.y;
+      const expTextHeight = estimateTextHeight(doc, sc.explanation, 10, CONTENT_W - 24);
+      const boxH = expTextHeight + 20;
+      doc.save()
+        .rect(MARGIN, expY, CONTENT_W, boxH)
+        .fill("#FFFBEB")
+        .restore();
+      doc.save()
+        .rect(MARGIN, expY, 3, boxH)
+        .fill("#D97706")
+        .restore();
+
+      doc.fontSize(10.5).fillColor("#92400E").font("Kalam-Bold")
+        .text("💡  Short Explanation:", MARGIN + 10, expY + 6, { width: CONTENT_W - 14 });
+      doc.moveDown(0.15);
+      resetX(doc);
+      doc.fontSize(10).fillColor("#1F2937").font("Helvetica")
+        .text(sc.explanation, MARGIN + 10, doc.y, {
+          width: CONTENT_W - 14,
+          lineBreak: true,
+          lineGap: 2,
+        });
+      doc.moveDown(0.6);
+      resetX(doc);
+    }
+
+    doc.moveDown(0.3);
+    hRule(doc, "#E5E7EB", 0.5);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -639,6 +754,14 @@ export function generateStudyGuidePdf(params: {
     ordered.forEach((chapter, i) => {
       renderChapterNote(doc, chapter, i);
     });
+
+    // ---- Study content: Padhne Ke Liye ----
+    const chaptersWithContent = ordered.filter(
+      (c) => (c.priority === "High" || c.priority === "Medium") && c.study_content
+    );
+    if (chaptersWithContent.length > 0) {
+      renderStudyContentSection(doc, chaptersWithContent);
+    }
 
     // ---- Strategy Tiers: Apni Strategy Chuno ----
     renderStrategyTiers(doc, params.aiResult.chapters);

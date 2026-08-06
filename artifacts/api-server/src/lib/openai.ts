@@ -13,6 +13,12 @@ function getOpenAI(): OpenAI {
   return _openai;
 }
 
+export interface StudyContent {
+  definition: string;
+  key_points: string[];
+  explanation: string;
+}
+
 export interface ChapterResult {
   chapter_name: string;
   frequency: number;
@@ -20,6 +26,7 @@ export interface ChapterResult {
   priority: "High" | "Medium" | "Low";
   study_note: string;
   key_terms: string[];
+  study_content?: StudyContent;
 }
 
 export interface AiAnalysisResult {
@@ -59,11 +66,17 @@ STRICT RULES — follow every one without exception:
 
 3. For High and Medium priority chapters, include a "key_terms" array of 3–5 bullet strings (short phrases, not sentences) — these are the specific keywords, theory names, or formulas that actually appeared in the papers for that chapter. For Low priority chapters, set key_terms to an empty array [].
 
-4. Tone: casual, friendly Hinglish (Roman-script Hindi+English mix). Sound like a helpful senior batchmate, not a textbook. Encouraging but honest about what matters and what doesn't.
+4. For High and Medium priority chapters ONLY, include a "study_content" object with exactly three fields:
+   - "definition": 2–3 sentences. A clear, simple Hinglish definition or overview of the chapter's core concept. Write it like you're explaining to a student studying last-minute — no jargon, no textbook density. Start directly with the concept, e.g. "HRM matlab hai..." or "Marketing mix ek framework hai...".
+   - "key_points": Array of 4–6 strings. Each string is 1–2 lines covering ONE essential thing the student must know. Base these SPECIFICALLY on the sub-topics, theory names, and key_terms you already identified as high-frequency in this chapter's papers — not generic chapter-wide theory.
+   - "explanation": 100–150 words. A deeper but still simple Hinglish explanation of the 1–2 most important concepts in this chapter — specifically the ones that appeared most in the papers. Write like a teacher doing a last-minute revision session: direct, clear, exam-focused. No introductory fluff like "In this chapter...".
+   For Low priority chapters, omit the study_content field entirely.
+
+5. Tone: casual, friendly Hinglish (Roman-script Hindi+English mix). Sound like a helpful senior batchmate, not a textbook. Encouraging but honest about what matters and what doesn't.
    - School category: very simple language, extra encouragement.
    - College category: mature, exam-strategy focused.
 
-5. Output ONLY valid JSON in the exact schema below. No markdown, no extra text outside the JSON.`;
+6. Output ONLY valid JSON in the exact schema below. No markdown, no extra text outside the JSON.`;
 
   const userPrompt = `Category: ${params.category}
 Class/Course: ${params.classOrCourse || "Not specified"}
@@ -78,6 +91,7 @@ Now produce the analysis. Remember:
 - List every chapter/unit found in the papers.
 - For EVERY chapter (High, Medium, AND Low priority), write a study_note. Low priority gets 2-3 sentences. High/Medium get 100-150 words with exactly three labeled sections starting with "Kya padhna hai:", "Kaise poochha jaata hai:", and "Repeat pattern:" — no (a)/(b)/(c) numbers anywhere in the text.
 - For High/Medium chapters, key_terms must be 3–5 short phrases extracted directly from the paper text (theory names, formulas, specific case types). For Low chapters, key_terms = [].
+- For High/Medium chapters, include study_content with definition (2-3 sentences), key_points (4-6 bullets), and explanation (100-150 words). For Low chapters, omit study_content.
 - frequency = total number of times questions from that chapter appeared across ALL provided years.
 - marks_weightage = typical marks allocated per question for this chapter (e.g. "10 marks", "2x5 marks", "Not visible").
 - priority: "High" if appeared in 3+ years or carries ≥20 marks; "Medium" if appeared in 1-2 years or 10-15 marks; "Low" if appeared rarely or for very few marks.
@@ -94,16 +108,22 @@ Return ONLY this JSON, no other text:
       "marks_weightage": "string",
       "priority": "High | Medium | Low",
       "study_note": "string — REQUIRED for every chapter, no exceptions",
-      "key_terms": ["string", "string", "string"]
+      "key_terms": ["string", "string", "string"],
+      "study_content": {
+        "definition": "2-3 sentence Hinglish overview of the chapter's core concept (High/Medium only)",
+        "key_points": ["4-6 short bullet strings, each 1-2 lines, based on what appeared in the papers"],
+        "explanation": "100-150 word Hinglish explanation of the most important concept(s) from the papers"
+      }
     }
   ],
   "overall_strategy_tip": "string — one Hinglish paragraph with the single most important exam strategy for this subject based on what you saw in the papers"
-}`;
+}
+NOTE: study_content must be present for every High and Medium priority chapter. For Low priority chapters, omit the study_content key entirely.`;
 
   const makeRequest = async () => {
     const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 6000,
+      max_tokens: 10000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

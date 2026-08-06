@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams } from "wouter";
 import { useGetAnalysis, useDownloadAnalysisPdf, useRetryAnalysis } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,14 @@ import { cn } from "@/lib/utils";
 export default function AnalysisResultPage() {
   const params = useParams();
   const id = parseInt(params.id || "0", 10);
+
+  const [studyTabOpen, setStudyTabOpen] = useState<Set<number>>(new Set());
+  const toggleStudyTab = (i: number) =>
+    setStudyTabOpen((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
 
   const { data: analysis, isLoading, error } = useGetAnalysis(id, {
     query: { enabled: !!id }
@@ -256,51 +265,125 @@ export default function AnalysisResultPage() {
         </div>
         
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {ai?.chapters?.map((chapter, index) => (
-            <Card key={index} className="flex flex-col h-full border-border/60 hover:shadow-md transition-all duration-300 hover:border-primary/30 relative overflow-hidden group">
-              <div className={cn("absolute top-0 left-0 w-full h-1", getPriorityColor(chapter.priority).split(' ')[0])} />
-              <CardHeader className="pb-3 pt-6">
-                <div className="flex justify-between items-start mb-2 gap-4">
-                  <Badge variant="outline" className={cn("border px-2 py-0.5 shadow-sm", getPriorityColor(chapter.priority))}>
-                    {chapter.priority} Priority
-                  </Badge>
-                  <div className="flex flex-col items-end text-xs font-medium text-muted-foreground whitespace-nowrap bg-secondary/50 px-2 py-1 rounded-md">
-                    <span>{chapter.marks_weightage} marks</span>
-                    <span>{chapter.frequency}x asked</span>
-                  </div>
-                </div>
-                <CardTitle className="text-xl font-bold font-serif leading-tight group-hover:text-primary transition-colors">
-                  {chapter.chapter_name}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex-1 pb-6 space-y-3">
-                {chapter.study_note ? (
-                  <div className="bg-muted/50 rounded-lg p-4 border border-border/50">
-                    <div className="flex items-start gap-2">
-                      <Sparkles className="w-4 h-4 text-primary mt-1 shrink-0" />
-                      <p className="text-sm text-foreground/80 leading-relaxed">{chapter.study_note}</p>
+          {ai?.chapters?.map((chapter, index) => {
+            const ch = chapter as typeof chapter & { key_terms?: string[]; study_content?: { definition: string; key_points: string[]; explanation: string } };
+            const hasStudyContent = !!ch.study_content;
+            const showStudy = studyTabOpen.has(index);
+
+            return (
+              <Card key={index} className="flex flex-col h-full border-border/60 hover:shadow-md transition-all duration-300 hover:border-primary/30 relative overflow-hidden group">
+                <div className={cn("absolute top-0 left-0 w-full h-1", getPriorityColor(chapter.priority).split(' ')[0])} />
+                <CardHeader className="pb-3 pt-6">
+                  <div className="flex justify-between items-start mb-2 gap-4">
+                    <Badge variant="outline" className={cn("border px-2 py-0.5 shadow-sm", getPriorityColor(chapter.priority))}>
+                      {chapter.priority} Priority
+                    </Badge>
+                    <div className="flex flex-col items-end text-xs font-medium text-muted-foreground whitespace-nowrap bg-secondary/50 px-2 py-1 rounded-md">
+                      <span>{chapter.marks_weightage} marks</span>
+                      <span>{chapter.frequency}x asked</span>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground italic p-2">
-                    <Info className="w-4 h-4" /> Study notes not available.
-                  </div>
-                )}
-                {Array.isArray((chapter as { key_terms?: string[] }).key_terms) && (chapter as { key_terms?: string[] }).key_terms!.length > 0 && (
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                    <p className="text-xs font-semibold text-primary mb-2 uppercase tracking-wider">Key Terms</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(chapter as { key_terms?: string[] }).key_terms!.map((term, ti) => (
-                        <span key={ti} className="inline-block bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs text-foreground/80 font-medium">
-                          {term}
-                        </span>
-                      ))}
+                  <CardTitle className="text-xl font-bold font-serif leading-tight group-hover:text-primary transition-colors">
+                    {chapter.chapter_name}
+                  </CardTitle>
+
+                  {/* Tab switcher — only shown when study_content is available */}
+                  {hasStudyContent && (
+                    <div className="flex mt-3 rounded-lg border border-border/60 overflow-hidden text-xs font-semibold">
+                      <button
+                        onClick={() => studyTabOpen.has(index) && toggleStudyTab(index)}
+                        className={cn(
+                          "flex-1 py-1.5 transition-colors",
+                          !showStudy
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                        )}
+                      >
+                        🎯 Exam Strategy
+                      </button>
+                      <button
+                        onClick={() => !studyTabOpen.has(index) && toggleStudyTab(index)}
+                        className={cn(
+                          "flex-1 py-1.5 transition-colors border-l border-border/60",
+                          showStudy
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                        )}
+                      >
+                        📖 Study Notes
+                      </button>
                     </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                  )}
+                </CardHeader>
+
+                <CardContent className="flex-1 pb-6 space-y-3">
+                  {/* ---- Exam Strategy tab (default) ---- */}
+                  {!showStudy && (
+                    <>
+                      {chapter.study_note ? (
+                        <div className="bg-muted/50 rounded-lg p-4 border border-border/50">
+                          <div className="flex items-start gap-2">
+                            <Sparkles className="w-4 h-4 text-primary mt-1 shrink-0" />
+                            <p className="text-sm text-foreground/80 leading-relaxed">{chapter.study_note}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground italic p-2">
+                          <Info className="w-4 h-4" /> Study notes not available.
+                        </div>
+                      )}
+                      {Array.isArray(ch.key_terms) && ch.key_terms.length > 0 && (
+                        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                          <p className="text-xs font-semibold text-primary mb-2 uppercase tracking-wider">Key Terms</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ch.key_terms.map((term, ti) => (
+                              <span key={ti} className="inline-block bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs text-foreground/80 font-medium">
+                                {term}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* ---- Study Notes tab ---- */}
+                  {showStudy && ch.study_content && (
+                    <div className="space-y-4">
+                      {/* Definition */}
+                      <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900/30 rounded-lg p-3">
+                        <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">📖 Definition</p>
+                        <p className="text-sm text-foreground/80 leading-relaxed">{ch.study_content.definition}</p>
+                      </div>
+
+                      {/* Key Points */}
+                      {ch.study_content.key_points?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-bold text-primary uppercase tracking-wider mb-2">📌 Key Points</p>
+                          <ul className="space-y-1.5">
+                            {ch.study_content.key_points.map((pt, pi) => (
+                              <li key={pi} className="flex items-start gap-2 text-sm text-foreground/80">
+                                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                                {pt}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Explanation */}
+                      {ch.study_content.explanation && (
+                        <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-lg p-3">
+                          <p className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-1">💡 Short Explanation</p>
+                          <p className="text-sm text-foreground/80 leading-relaxed">{ch.study_content.explanation}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
     </div>
