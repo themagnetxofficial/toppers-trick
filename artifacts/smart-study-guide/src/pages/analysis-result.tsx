@@ -5,21 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw, Layers, ChevronDown, ChevronUp, Link } from "lucide-react";
+import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw, Layers, Link } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 // ─── Type helpers for both old and new schema ────────────────────────────────
 
-interface SubTopic {
-  sub_topic_name: string;
-  frequency: number;
-  years_appeared?: string[];
-  note?: string;
-}
-
 interface QuestionTypeBreakdown {
+  // new schema field names
   mcq?: string;
+  short?: string;
+  long?: string;
+  case_study?: string;
+  // old schema field names (backward compat)
   short_answer?: string;
   long_answer?: string;
   numerical_or_case_study?: string;
@@ -31,28 +29,31 @@ interface StudyNoteObj {
   repeat_pattern?: string;
 }
 
-interface ChapterData {
-  chapter_name: string;
+interface TopicData {
   // new schema
-  overall_priority?: "High" | "Medium" | "Low";
-  total_frequency?: number;
+  topic_name?: string;
+  priority?: "High" | "Medium" | "Low";
+  frequency?: number;
   years_appeared?: string[];
   confidence_level?: "High" | "Medium" | "Low";
   question_type_breakdown?: QuestionTypeBreakdown;
-  sub_topics?: SubTopic[];
   study_note?: string | StudyNoteObj;
   key_terms?: string[];
   marks_weightage?: string;
   // old schema compat
-  priority?: "High" | "Medium" | "Low";
-  frequency?: number;
+  chapter_name?: string;
+  overall_priority?: "High" | "Medium" | "Low";
+  total_frequency?: number;
 }
 
-function getPriority(ch: ChapterData): "High" | "Medium" | "Low" {
-  return ch.overall_priority ?? ch.priority ?? "Low";
+function getTopicName(t: TopicData): string {
+  return t.topic_name ?? t.chapter_name ?? "—";
 }
-function getFrequency(ch: ChapterData): number {
-  return ch.total_frequency ?? ch.frequency ?? 0;
+function getPriority(t: TopicData): "High" | "Medium" | "Low" {
+  return t.priority ?? t.overall_priority ?? "Low";
+}
+function getFrequency(t: TopicData): number {
+  return t.frequency ?? t.total_frequency ?? 0;
 }
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -87,14 +88,6 @@ function priorityAccentClass(p: string) {
 export default function AnalysisResultPage() {
   const params = useParams();
   const id = parseInt(params.id || "0", 10);
-
-  const [expandedSubTopics, setExpandedSubTopics] = useState<Set<number>>(new Set());
-  const toggleSubTopics = (i: number) =>
-    setExpandedSubTopics((prev) => {
-      const next = new Set(prev);
-      next.has(i) ? next.delete(i) : next.add(i);
-      return next;
-    });
 
   const { data: analysis, isLoading, error } = useGetAnalysis(id, {
     query: { enabled: !!id }
@@ -183,7 +176,11 @@ export default function AnalysisResultPage() {
   const ai = analysis.aiResponse as {
     subject?: string;
     years_analyzed?: string[] | number;
-    chapters?: ChapterData[];
+    // new schema
+    topics?: TopicData[];
+    related_topic_pairs?: string[];
+    // old schema compat
+    chapters?: TopicData[];
     cross_chapter_patterns?: string[];
     overall_strategy_tip?: string;
   } | undefined;
@@ -211,6 +208,10 @@ export default function AnalysisResultPage() {
   const allYears: string[] = Array.isArray(ai?.years_analyzed)
     ? ai!.years_analyzed as string[]
     : [];
+
+  // Support both new (topics) and old (chapters) schema
+  const allTopics: TopicData[] = (ai?.topics ?? ai?.chapters ?? []) as TopicData[];
+  const relatedPairs: string[] = ai?.related_topic_pairs ?? ai?.cross_chapter_patterns ?? [];
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -258,20 +259,20 @@ export default function AnalysisResultPage() {
         </Card>
       )}
 
-      {/* Cross-chapter patterns */}
-      {ai?.cross_chapter_patterns && ai.cross_chapter_patterns.length > 0 && (
+      {/* Related Topic Pairs */}
+      {relatedPairs.length > 0 && (
         <Card className="border-indigo-200 dark:border-indigo-900/30 bg-indigo-50/50 dark:bg-indigo-900/10">
           <CardContent className="p-6">
             <div className="flex items-center gap-2 mb-3">
               <Link className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-              <h3 className="text-lg font-bold font-serif text-indigo-800 dark:text-indigo-300">Cross-Chapter Patterns</h3>
+              <h3 className="text-lg font-bold font-serif text-indigo-800 dark:text-indigo-300">Related Topic Pairs</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-3">Yeh chapters exam mein aksar ek saath poochhe jaate hain — inhe milake padho.</p>
+            <p className="text-xs text-muted-foreground mb-3">Yeh topics exam mein aksar ek saath poochhe jaate hain — inhe milake padho.</p>
             <ul className="space-y-2">
-              {ai.cross_chapter_patterns.map((pattern, i) => (
+              {relatedPairs.map((pair, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm text-foreground/80 bg-white dark:bg-indigo-900/20 rounded-lg p-3 border border-indigo-100 dark:border-indigo-900/30">
                   <span className="text-indigo-500 font-bold shrink-0">{i + 1}.</span>
-                  {pattern}
+                  {pair}
                 </li>
               ))}
             </ul>
@@ -280,33 +281,32 @@ export default function AnalysisResultPage() {
       )}
 
       {/* Strategy Tiers */}
-      {ai?.chapters && ai.chapters.length > 0 && (() => {
-        const chapters = ai.chapters as ChapterData[];
-        const high = chapters.filter(c => getPriority(c) === 'High').sort((a, b) => getFrequency(b) - getFrequency(a));
-        const medium = chapters.filter(c => getPriority(c) === 'Medium').sort((a, b) => getFrequency(b) - getFrequency(a));
-        const low = chapters.filter(c => getPriority(c) === 'Low').sort((a, b) => getFrequency(b) - getFrequency(a));
-        const total = chapters.length;
-        const totalFreq = chapters.reduce((s, c) => s + getFrequency(c), 0) || 1;
-        const freqCov = (chs: ChapterData[]) => Math.round(chs.reduce((s, c) => s + getFrequency(c), 0) / totalFreq * 100);
+      {allTopics.length > 0 && (() => {
+        const high = allTopics.filter(t => getPriority(t) === 'High').sort((a, b) => getFrequency(b) - getFrequency(a));
+        const medium = allTopics.filter(t => getPriority(t) === 'Medium').sort((a, b) => getFrequency(b) - getFrequency(a));
+        const low = allTopics.filter(t => getPriority(t) === 'Low').sort((a, b) => getFrequency(b) - getFrequency(a));
+        const total = allTopics.length;
+        const totalFreq = allTopics.reduce((s, t) => s + getFrequency(t), 0) || 1;
+        const freqCov = (ts: TopicData[]) => Math.round(ts.reduce((s, t) => s + getFrequency(t), 0) / totalFreq * 100);
 
         const tiers = [
           {
             emoji: '🎯', title: 'Bas Pass Hona Hai', subtitle: 'Just want to pass',
-            chapters: high, count: high.length, coverage: freqCov(high),
+            topics: high, count: high.length, coverage: freqCov(high),
             color: 'border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/30',
             badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
             dot: 'bg-red-500',
           },
           {
             emoji: '📈', title: 'Average Score Chahiye', subtitle: 'Want a decent score',
-            chapters: [...high, ...medium], count: high.length + medium.length, coverage: freqCov([...high, ...medium]),
+            topics: [...high, ...medium], count: high.length + medium.length, coverage: freqCov([...high, ...medium]),
             color: 'border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900/30',
             badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
             dot: 'bg-amber-500',
           },
           {
             emoji: '🏆', title: 'Top Karna Hai', subtitle: 'Want to top the exam',
-            chapters: [...high, ...medium, ...low], count: total, coverage: 100,
+            topics: [...high, ...medium, ...low], count: total, coverage: 100,
             color: 'border-green-200 bg-green-50 dark:bg-green-900/10 dark:border-green-900/30',
             badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
             dot: 'bg-green-500',
@@ -319,7 +319,7 @@ export default function AnalysisResultPage() {
               <Layers className="w-6 h-6 text-primary" />
               <h2 className="text-2xl font-bold font-serif">Apni Strategy Chuno</h2>
             </div>
-            <p className="text-sm text-muted-foreground px-2">Pick your goal — here's exactly which chapters to study based on past paper patterns.</p>
+            <p className="text-sm text-muted-foreground px-2">Pick your goal — here's exactly which topics to study based on past paper patterns.</p>
             <div className="grid md:grid-cols-3 gap-4">
               {tiers.map((tier) => (
                 <Card key={tier.title} className={`border-2 ${tier.color} flex flex-col`}>
@@ -327,7 +327,7 @@ export default function AnalysisResultPage() {
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-2xl">{tier.emoji}</span>
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tier.badge}`}>
-                        {tier.count}/{total} chapters · ~{tier.coverage}%
+                        {tier.count}/{total} topics · ~{tier.coverage}%
                       </span>
                     </div>
                     <CardTitle className="text-base font-bold font-serif mt-1">{tier.title}</CardTitle>
@@ -335,10 +335,10 @@ export default function AnalysisResultPage() {
                   </CardHeader>
                   <CardContent className="flex-1 pt-0">
                     <ol className="space-y-1">
-                      {tier.chapters.map((ch, i) => (
+                      {tier.topics.map((t, i) => (
                         <li key={i} className="flex items-start gap-2 text-sm">
                           <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${tier.dot}`} />
-                          <span className="text-foreground/80">{ch.chapter_name}</span>
+                          <span className="text-foreground/80">{getTopicName(t)}</span>
                         </li>
                       ))}
                     </ol>
@@ -350,21 +350,19 @@ export default function AnalysisResultPage() {
         );
       })()}
 
-      {/* Chapter list */}
+      {/* Topic list */}
       <div className="space-y-6">
         <div className="flex items-center gap-2 px-2">
           <Target className="w-6 h-6 text-primary" />
-          <h2 className="text-2xl font-bold font-serif">Chapter Priority List</h2>
+          <h2 className="text-2xl font-bold font-serif">Topic Priority List</h2>
         </div>
 
         <div className="space-y-4">
-          {(ai?.chapters as ChapterData[] | undefined)?.map((chapter, index) => {
-            const priority = getPriority(chapter);
-            const frequency = getFrequency(chapter);
-            const confidence = chapter.confidence_level;
-            const hasSubTopics = Array.isArray(chapter.sub_topics) && chapter.sub_topics.length > 0;
-            const subTopicsOpen = expandedSubTopics.has(index);
-            const studyNote = chapter.study_note;
+          {allTopics.map((topic, index) => {
+            const priority = getPriority(topic);
+            const frequency = getFrequency(topic);
+            const confidence = topic.confidence_level;
+            const studyNote = topic.study_note;
             const isNoteObj = studyNote && typeof studyNote === "object";
             const isNoteStr = studyNote && typeof studyNote === "string";
 
@@ -372,17 +370,22 @@ export default function AnalysisResultPage() {
             const yearDots = allYears.length > 0
               ? allYears.map(y => ({
                   year: y,
-                  present: (chapter.years_appeared ?? []).includes(y),
+                  present: (topic.years_appeared ?? []).includes(y),
                 }))
-              : (chapter.years_appeared ?? []).map(y => ({ year: y, present: true }));
+              : (topic.years_appeared ?? []).map(y => ({ year: y, present: true }));
 
-            const qtBreakdown = chapter.question_type_breakdown;
-            const qtParts = qtBreakdown
+            const qt = topic.question_type_breakdown;
+            const qtParts = qt
               ? [
-                  qtBreakdown.mcq && qtBreakdown.mcq !== "None" ? `MCQ: ${qtBreakdown.mcq}` : null,
-                  qtBreakdown.short_answer && qtBreakdown.short_answer !== "None" ? `Short: ${qtBreakdown.short_answer}` : null,
-                  qtBreakdown.long_answer && qtBreakdown.long_answer !== "None" ? `Long: ${qtBreakdown.long_answer}` : null,
-                  qtBreakdown.numerical_or_case_study && qtBreakdown.numerical_or_case_study !== "None" ? `Case/Num: ${qtBreakdown.numerical_or_case_study}` : null,
+                  qt.mcq && qt.mcq !== "None" ? `MCQ: ${qt.mcq}` : null,
+                  // new schema
+                  qt.short && qt.short !== "None" ? `Short: ${qt.short}` : null,
+                  qt.long && qt.long !== "None" ? `Long: ${qt.long}` : null,
+                  qt.case_study && qt.case_study !== "None" ? `Case Study: ${qt.case_study}` : null,
+                  // old schema compat
+                  qt.short_answer && qt.short_answer !== "None" && !qt.short ? `Short: ${qt.short_answer}` : null,
+                  qt.long_answer && qt.long_answer !== "None" && !qt.long ? `Long: ${qt.long_answer}` : null,
+                  qt.numerical_or_case_study && qt.numerical_or_case_study !== "None" && !qt.case_study ? `Case/Num: ${qt.numerical_or_case_study}` : null,
                 ].filter(Boolean)
               : [];
 
@@ -394,7 +397,7 @@ export default function AnalysisResultPage() {
                   {/* Top row: name + badges + freq */}
                   <div className="flex flex-wrap items-start gap-2 mb-3">
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-bold font-serif leading-tight">{chapter.chapter_name}</h3>
+                      <h3 className="text-lg font-bold font-serif leading-tight">{getTopicName(topic)}</h3>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 flex-wrap">
                       <Badge variant="outline" className={cn("border text-xs px-2 py-0.5", priorityBadgeClass(priority))}>
@@ -406,7 +409,7 @@ export default function AnalysisResultPage() {
                         </Badge>
                       )}
                       <div className="text-xs font-medium text-muted-foreground bg-secondary/50 px-2 py-1 rounded-md whitespace-nowrap">
-                        {chapter.marks_weightage && <span>{chapter.marks_weightage} · </span>}
+                        {topic.marks_weightage && <span>{topic.marks_weightage} · </span>}
                         {frequency}× asked
                       </div>
                     </div>
@@ -483,52 +486,16 @@ export default function AnalysisResultPage() {
                   )}
 
                   {/* Key terms */}
-                  {Array.isArray(chapter.key_terms) && chapter.key_terms.length > 0 && (
-                    <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 mb-3">
+                  {Array.isArray(topic.key_terms) && topic.key_terms.length > 0 && (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
                       <p className="text-xs font-semibold text-primary mb-1.5 uppercase tracking-wider">Key Terms</p>
                       <div className="flex flex-wrap gap-1.5">
-                        {chapter.key_terms.map((term, ti) => (
+                        {topic.key_terms.map((term, ti) => (
                           <span key={ti} className="inline-block bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs text-foreground/80 font-medium">
                             {term}
                           </span>
                         ))}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Sub-topics toggle */}
-                  {hasSubTopics && (
-                    <div>
-                      <button
-                        onClick={() => toggleSubTopics(index)}
-                        className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors mb-2"
-                      >
-                        {subTopicsOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        {subTopicsOpen ? "Hide" : "Show"} Sub-topics ({chapter.sub_topics!.length})
-                      </button>
-
-                      {subTopicsOpen && (
-                        <div className="space-y-2 mt-1">
-                          {chapter.sub_topics!.map((st, si) => (
-                            <div key={si} className="border border-amber-200 dark:border-amber-900/30 bg-amber-50/60 dark:bg-amber-900/10 rounded-lg p-3">
-                              <div className="flex items-start justify-between gap-2 mb-1">
-                                <p className="text-sm font-bold text-amber-800 dark:text-amber-300">{st.sub_topic_name}</p>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <span className="text-xs text-muted-foreground">{st.frequency}×</span>
-                                  {(st.years_appeared ?? []).map(y => (
-                                    <span key={y} className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">
-                                      {y}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                              {st.note && (
-                                <p className="text-xs text-foreground/70 leading-relaxed">{st.note}</p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
                 </CardContent>

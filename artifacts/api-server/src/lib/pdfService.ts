@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { AiAnalysisResult, ChapterResult, SubTopic } from "./openai";
+import { AiAnalysisResult, TopicResult } from "./openai";
 import path from "path";
 import fs from "fs";
 
@@ -168,15 +168,15 @@ function renderHeader(
 
 function renderSummaryTable(
   doc: InstanceType<typeof PDFDocument>,
-  chapters: ChapterResult[]
+  topics: TopicResult[]
 ) {
   doc.fontSize(15).fillColor("#D97706").font("Kalam-Bold")
-    .text("Chapter Priority Overview", MARGIN, doc.y, { width: CONTENT_W });
+    .text("Topic Priority Overview", MARGIN, doc.y, { width: CONTENT_W });
   doc.moveDown(0.6);
 
-  // Columns: Chapter(205) | Priority(70) | Confidence(75) | Freq(45) | Marks(100)
+  // Columns: Topic(205) | Priority(70) | Confidence(75) | Freq(45) | Marks(100)
   const cols = [
-    { label: "Chapter / Topic", w: 205, x: MARGIN },
+    { label: "Topic", w: 205, x: MARGIN },
     { label: "Priority", w: 70, x: MARGIN + 205 },
     { label: "Confidence", w: 75, x: MARGIN + 275 },
     { label: "Freq", w: 45, x: MARGIN + 350 },
@@ -199,7 +199,7 @@ function renderSummaryTable(
     .strokeColor("#D1D5DB").lineWidth(0.5).stroke().restore();
   rowY += 4;
 
-  chapters.forEach((ch, idx) => {
+  topics.forEach((tp, idx) => {
     if (rowY > PAGE_H - BOTTOM_MARGIN) {
       doc.addPage();
       rowY = MARGIN;
@@ -209,13 +209,13 @@ function renderSummaryTable(
       doc.save().rect(MARGIN, rowY - 2, CONTENT_W, 18).fill("#FAFAFA").restore();
     }
 
-    const priority = ch.overall_priority ?? (ch as any).priority ?? "Low";
-    const confidence = ch.confidence_level ?? "Medium";
+    const priority = tp.priority ?? (tp as any).overall_priority ?? "Low";
+    const confidence = tp.confidence_level ?? "Medium";
     const pColor = PRIORITY_COLORS[priority] ?? "#374151";
 
-    // Chapter name
+    // Topic name
     doc.fontSize(9).fillColor("#111827").font("Helvetica")
-      .text(ch.chapter_name || "—", cols[0].x + 4, rowY, { width: cols[0].w - 8 });
+      .text(tp.topic_name || "—", cols[0].x + 4, rowY, { width: cols[0].w - 8 });
 
     // Priority pill
     const pillW = 55;
@@ -238,13 +238,13 @@ function renderSummaryTable(
       .text(confidence, confX, rowY + 1, { width: confW, align: "center" });
 
     // Frequency
-    const freq = ch.total_frequency ?? (ch as any).frequency ?? 0;
+    const freq = tp.frequency ?? (tp as any).total_frequency ?? 0;
     doc.fontSize(9).fillColor("#374151").font("Helvetica")
       .text(`${freq}×`, cols[3].x + 4, rowY, { width: cols[3].w - 4, align: "center" });
 
     // Marks
     doc.fontSize(9).fillColor("#374151").font("Helvetica")
-      .text(ch.marks_weightage ?? "—", cols[4].x + 4, rowY, { width: cols[4].w - 4 });
+      .text(tp.marks_weightage ?? "—", cols[4].x + 4, rowY, { width: cols[4].w - 4 });
 
     rowY += 18;
   });
@@ -256,28 +256,26 @@ function renderSummaryTable(
   doc.moveDown(0.5);
 }
 
-function renderChapterNote(
+function renderTopicNote(
   doc: InstanceType<typeof PDFDocument>,
-  chapter: ChapterResult,
+  topic: TopicResult,
   index: number
 ) {
-  const priority = chapter.overall_priority ?? (chapter as any).priority ?? "Low";
+  const priority = topic.priority ?? (topic as any).overall_priority ?? "Low";
   const pColor = PRIORITY_COLORS[priority] ?? "#374151";
-  const confidence = chapter.confidence_level ?? "Medium";
-  const freq = chapter.total_frequency ?? (chapter as any).frequency ?? 0;
+  const confidence = topic.confidence_level ?? "Medium";
+  const freq = topic.frequency ?? (topic as any).total_frequency ?? 0;
 
-  const subTopics = chapter.sub_topics ?? [];
-  const blockHeight = 80 + subTopics.length * 24 + 60;
-  ensureSpace(doc, Math.min(blockHeight, 200));
+  ensureSpace(doc, 160);
 
   const startY = doc.y;
 
   // Left accent bar
   doc.save().rect(MARGIN, startY, 4, 16).fill(pColor).restore();
 
-  // Chapter heading
+  // Topic heading
   doc.fontSize(14).fillColor("#111827").font("Kalam-Bold")
-    .text(`${index + 1}. ${chapter.chapter_name}`, MARGIN + 12, startY, {
+    .text(`${index + 1}. ${topic.topic_name}`, MARGIN + 12, startY, {
       width: CONTENT_W - 200,
     });
 
@@ -306,8 +304,8 @@ function renderChapterNote(
   resetX(doc);
 
   // Years appeared + frequency inline
-  if (Array.isArray(chapter.years_appeared) && chapter.years_appeared.length > 0) {
-    const yearsStr = chapter.years_appeared.join("  ·  ");
+  if (Array.isArray(topic.years_appeared) && topic.years_appeared.length > 0) {
+    const yearsStr = topic.years_appeared.join("  ·  ");
     doc.fontSize(8.5).fillColor("#6B7280").font("Helvetica")
       .text(`Appeared in: ${yearsStr}   ·   ${freq}× total`, MARGIN, doc.y, { width: CONTENT_W });
     doc.moveDown(0.4);
@@ -315,13 +313,13 @@ function renderChapterNote(
   }
 
   // Question type breakdown — compact inline
-  if (chapter.question_type_breakdown) {
-    const qt = chapter.question_type_breakdown;
+  if (topic.question_type_breakdown) {
+    const qt = topic.question_type_breakdown;
     const parts = [
-      qt.mcq !== "None" && qt.mcq ? `MCQ: ${qt.mcq}` : null,
-      qt.short_answer !== "None" && qt.short_answer ? `Short: ${qt.short_answer}` : null,
-      qt.long_answer !== "None" && qt.long_answer ? `Long: ${qt.long_answer}` : null,
-      qt.numerical_or_case_study !== "None" && qt.numerical_or_case_study ? `Case/Num: ${qt.numerical_or_case_study}` : null,
+      qt.mcq && qt.mcq !== "None" ? `MCQ: ${qt.mcq}` : null,
+      qt.short && qt.short !== "None" ? `Short: ${qt.short}` : null,
+      qt.long && qt.long !== "None" ? `Long: ${qt.long}` : null,
+      qt.case_study && qt.case_study !== "None" ? `Case Study: ${qt.case_study}` : null,
     ].filter(Boolean);
 
     if (parts.length > 0) {
@@ -333,7 +331,7 @@ function renderChapterNote(
   }
 
   // ---- Study note (3 sections as object) ----
-  const note = chapter.study_note;
+  const note = topic.study_note;
   if (note && typeof note === "object") {
     const sections = [
       { label: "Kya Padhna Hai", body: note.kya_padhna_hai },
@@ -370,84 +368,21 @@ function renderChapterNote(
     doc.moveDown(0.5);
   }
 
-  // ---- Sub-topics ----
-  if (subTopics.length > 0) {
-    doc.moveDown(0.2);
-    ensureSpace(doc, subTopics.length * 26 + 20);
-    resetX(doc);
-
-    doc.fontSize(10.5).fillColor("#92400E").font("Kalam-Bold")
-      .text("Sub-topics:", MARGIN, doc.y, { width: CONTENT_W });
-    doc.moveDown(0.2);
-
-    subTopics.forEach((st: SubTopic) => {
-      resetX(doc);
-      ensureSpace(doc, 30);
-      const stY = doc.y;
-
-      // Sticky chip background
-      const chipH = estimateTextHeight(doc, st.note ?? "", 9, CONTENT_W - 60) + 18;
-      doc.save()
-        .roundedRect(MARGIN + 4, stY, CONTENT_W - 8, Math.max(chipH, 26), 3)
-        .fill("#FEFCE8")
-        .restore();
-      doc.save()
-        .rect(MARGIN + 4, stY, 3, Math.max(chipH, 26))
-        .fill("#F59E0B")
-        .restore();
-
-      // Sub-topic name (line 1)
-      doc.fontSize(9).fillColor("#78350F").font("Kalam-Bold")
-        .text(`  ${st.sub_topic_name}`, MARGIN + 10, stY + 4, {
-          width: CONTENT_W - 20,
-          lineBreak: false,
-        });
-
-      // Freq + years (line 2, compact)
-      const yearsShort = (st.years_appeared ?? []).join(" · ");
-      const stFreqStr = `${st.frequency}×  ${yearsShort ? `— ${yearsShort}` : ""}`;
-      doc.fontSize(7.5).fillColor("#92400E").font("Helvetica")
-        .text(`  ${stFreqStr}`, MARGIN + 10, stY + 16, {
-          width: CONTENT_W - 20,
-          lineBreak: false,
-        });
-
-      // Note text (line 3+)
-      if (st.note) {
-        resetX(doc);
-        doc.fontSize(9).fillColor("#374151").font("Helvetica")
-          .text(st.note, MARGIN + 12, stY + 27, {
-            width: CONTENT_W - 20,
-            lineBreak: true,
-            lineGap: 1,
-          });
-        // Advance cursor past the chip
-        const chipBottom = stY + Math.max(chipH, 40);
-        if (doc.y < chipBottom) {
-          doc.text("", MARGIN, chipBottom + 2);
-        }
-      } else {
-        doc.text("", MARGIN, stY + 32);
-      }
-      doc.moveDown(0.3);
-    });
-  }
-
   // ---- Key terms ----
   if (
     (priority === "High" || priority === "Medium") &&
-    Array.isArray(chapter.key_terms) &&
-    chapter.key_terms.length > 0
+    Array.isArray(topic.key_terms) &&
+    topic.key_terms.length > 0
   ) {
     doc.moveDown(0.2);
-    ensureSpace(doc, chapter.key_terms.length * 14 + 24);
+    ensureSpace(doc, topic.key_terms.length * 14 + 24);
     resetX(doc);
 
     doc.fontSize(10).fillColor("#92400E").font("Kalam-Bold")
       .text("Key Terms:", MARGIN, doc.y, { width: CONTENT_W });
     doc.moveDown(0.25);
 
-    chapter.key_terms.forEach((term) => {
+    topic.key_terms.forEach((term) => {
       resetX(doc);
       ensureSpace(doc, 18);
       const termX = MARGIN + 4;
@@ -480,52 +415,52 @@ interface StrategyTier {
   emoji: string;
   title: string;
   subtitle: string;
-  chapters: ChapterResult[];
+  topics: TopicResult[];
   color: string;
   bg: string;
 }
 
-function buildStrategyTiers(chapters: ChapterResult[]): StrategyTier[] {
-  const getPrio = (c: ChapterResult) => c.overall_priority ?? (c as any).priority ?? "Low";
-  const getFreq = (c: ChapterResult) => c.total_frequency ?? (c as any).frequency ?? 0;
+function buildStrategyTiers(topics: TopicResult[]): StrategyTier[] {
+  const getPrio = (t: TopicResult) => t.priority ?? (t as any).overall_priority ?? "Low";
+  const getFreq = (t: TopicResult) => t.frequency ?? (t as any).total_frequency ?? 0;
 
-  const total = chapters.length;
-  const high = [...chapters.filter((c) => getPrio(c) === "High")].sort(
+  const total = topics.length;
+  const high = [...topics.filter((t) => getPrio(t) === "High")].sort(
     (a, b) => getFreq(b) - getFreq(a)
   );
-  const medium = [...chapters.filter((c) => getPrio(c) === "Medium")].sort(
+  const medium = [...topics.filter((t) => getPrio(t) === "Medium")].sort(
     (a, b) => getFreq(b) - getFreq(a)
   );
-  const low = [...chapters.filter((c) => getPrio(c) === "Low")].sort(
+  const low = [...topics.filter((t) => getPrio(t) === "Low")].sort(
     (a, b) => getFreq(b) - getFreq(a)
   );
 
-  const totalFreq = chapters.reduce((s, c) => s + getFreq(c), 0) || 1;
-  const freqCoverage = (chs: ChapterResult[]) =>
-    Math.round((chs.reduce((s, c) => s + getFreq(c), 0) / totalFreq) * 100);
+  const totalFreq = topics.reduce((s, t) => s + getFreq(t), 0) || 1;
+  const freqCoverage = (tps: TopicResult[]) =>
+    Math.round((tps.reduce((s, t) => s + getFreq(t), 0) / totalFreq) * 100);
 
   return [
     {
       emoji: "🎯",
       title: "Bas Pass Hona Hai",
-      subtitle: `Just want to pass — ${high.length} of ${total} chapters · ~${freqCoverage(high)}% marks coverage`,
-      chapters: high,
+      subtitle: `Just want to pass — ${high.length} of ${total} topics · ~${freqCoverage(high)}% marks coverage`,
+      topics: high,
       color: "#DC2626",
       bg: "#FEF2F2",
     },
     {
       emoji: "📈",
       title: "Average Score Chahiye",
-      subtitle: `Decent score — ${high.length + medium.length} of ${total} chapters · ~${freqCoverage([...high, ...medium])}% marks coverage`,
-      chapters: [...high, ...medium],
+      subtitle: `Decent score — ${high.length + medium.length} of ${total} topics · ~${freqCoverage([...high, ...medium])}% marks coverage`,
+      topics: [...high, ...medium],
       color: "#D97706",
       bg: "#FFFBEB",
     },
     {
       emoji: "🏆",
       title: "Top Karna Hai",
-      subtitle: `Full coverage — all ${total} chapters · 100% marks coverage`,
-      chapters: [...high, ...medium, ...low],
+      subtitle: `Full coverage — all ${total} topics · 100% marks coverage`,
+      topics: [...high, ...medium, ...low],
       color: "#16A34A",
       bg: "#F0FDF4",
     },
@@ -534,7 +469,7 @@ function buildStrategyTiers(chapters: ChapterResult[]): StrategyTier[] {
 
 function renderStrategyTiers(
   doc: InstanceType<typeof PDFDocument>,
-  chapters: ChapterResult[]
+  topics: TopicResult[]
 ) {
   newPage(doc);
 
@@ -543,19 +478,19 @@ function renderStrategyTiers(
   doc.moveDown(0.2);
   doc.fontSize(10).fillColor("#6B7280").font("Helvetica")
     .text(
-      "Pick your goal — here's exactly which chapters to study based on past paper patterns.",
+      "Pick your goal — here's exactly which topics to study based on past paper patterns.",
       MARGIN, doc.y, { width: CONTENT_W }
     );
   doc.moveDown(0.8);
   hRule(doc, "#D97706", 1);
 
-  const tiers = buildStrategyTiers(chapters);
+  const tiers = buildStrategyTiers(topics);
 
   tiers.forEach((tier) => {
-    ensureSpace(doc, tier.chapters.length * 13 + 70);
+    ensureSpace(doc, tier.topics.length * 13 + 70);
 
     const boxTop = doc.y;
-    const estimatedHeight = tier.chapters.length * 13 + 58;
+    const estimatedHeight = tier.topics.length * 13 + 58;
 
     doc.save()
       .rect(MARGIN, boxTop, CONTENT_W, estimatedHeight)
@@ -589,10 +524,10 @@ function renderStrategyTiers(
     doc.moveDown(0.5);
     resetX(doc);
 
-    tier.chapters.forEach((ch, i) => {
+    tier.topics.forEach((tp, i) => {
       resetX(doc);
       doc.fontSize(9).fillColor("#111827").font("Helvetica")
-        .text(`   ${i + 1}.  ${ch.chapter_name}`, MARGIN + 12, doc.y, {
+        .text(`   ${i + 1}.  ${tp.topic_name}`, MARGIN + 12, doc.y, {
           width: CONTENT_W - 24,
           lineBreak: false,
         });
@@ -605,16 +540,16 @@ function renderStrategyTiers(
 }
 
 // ---------------------------------------------------------------------------
-// Cross-chapter patterns renderer
+// Related topic pairs renderer
 // ---------------------------------------------------------------------------
 
-function renderCrossChapterPatterns(
+function renderRelatedTopicPairs(
   doc: InstanceType<typeof PDFDocument>,
-  patterns: string[]
+  pairs: string[]
 ) {
-  if (!patterns || patterns.length === 0) return;
+  if (!pairs || pairs.length === 0) return;
 
-  ensureSpace(doc, patterns.length * 30 + 60);
+  ensureSpace(doc, pairs.length * 30 + 60);
   resetX(doc);
   doc.moveDown(0.5);
 
@@ -626,23 +561,23 @@ function renderCrossChapterPatterns(
   resetX(doc);
 
   doc.fontSize(16).fillColor("#6366F1").font("Kalam-Bold")
-    .text("Cross-Chapter Patterns", MARGIN, doc.y, { width: CONTENT_W });
+    .text("Related Topic Pairs", MARGIN, doc.y, { width: CONTENT_W });
   doc.moveDown(0.3);
   resetX(doc);
 
   doc.fontSize(9.5).fillColor("#6B7280").font("Helvetica")
     .text(
-      "Yeh chapters exam mein aksar ek saath poochhe jaate hain — inhe milake padho.",
+      "Yeh topics exam mein aksar ek saath poochhe jaate hain — inhe milake padho.",
       MARGIN, doc.y, { width: CONTENT_W }
     );
   doc.moveDown(0.6);
   resetX(doc);
 
-  patterns.forEach((pattern, i) => {
+  pairs.forEach((pair, i) => {
     resetX(doc);
     ensureSpace(doc, 30);
     const patY = doc.y;
-    const patH = estimateTextHeight(doc, pattern, 9.5, CONTENT_W - 24) + 14;
+    const patH = estimateTextHeight(doc, pair, 9.5, CONTENT_W - 24) + 14;
     doc.save()
       .roundedRect(MARGIN, patY, CONTENT_W, Math.max(patH, 22), 4)
       .fill("#EEF2FF")
@@ -652,7 +587,7 @@ function renderCrossChapterPatterns(
       .fill("#6366F1")
       .restore();
     doc.fontSize(9).fillColor("#374151").font("Helvetica")
-      .text(`  ${i + 1}.  ${pattern}`, MARGIN + 10, patY + 6, {
+      .text(`  ${i + 1}.  ${pair}`, MARGIN + 10, patY + 6, {
         width: CONTENT_W - 16,
         lineBreak: true,
         lineGap: 2,
@@ -703,8 +638,12 @@ export function generateStudyGuidePdf(params: {
       yearsAnalyzed: params.aiResult.years_analyzed ?? 1,
     });
 
+    // Resolve topics — support both new schema (topics) and old (chapters)
+    const topics: TopicResult[] =
+      params.aiResult.topics ?? (params.aiResult as any).chapters ?? [];
+
     // ---- Summary table ----
-    renderSummaryTable(doc, params.aiResult.chapters);
+    renderSummaryTable(doc, topics);
 
     // ---- Detailed notes section ----
     newPage(doc);
@@ -719,24 +658,28 @@ export function generateStudyGuidePdf(params: {
     doc.moveDown(0.8);
     hRule(doc, "#D97706", 1);
 
-    const getPrio = (c: ChapterResult) => c.overall_priority ?? (c as any).priority ?? "Low";
+    const getPrio = (t: TopicResult) => t.priority ?? (t as any).overall_priority ?? "Low";
     const ordered = [
-      ...params.aiResult.chapters.filter((c) => getPrio(c) === "High"),
-      ...params.aiResult.chapters.filter((c) => getPrio(c) === "Medium"),
-      ...params.aiResult.chapters.filter((c) => getPrio(c) === "Low"),
+      ...topics.filter((t) => getPrio(t) === "High"),
+      ...topics.filter((t) => getPrio(t) === "Medium"),
+      ...topics.filter((t) => getPrio(t) === "Low"),
     ];
 
-    ordered.forEach((chapter, i) => {
-      renderChapterNote(doc, chapter, i);
+    ordered.forEach((topic, i) => {
+      renderTopicNote(doc, topic, i);
     });
 
-    // ---- Cross-chapter patterns ----
-    if (params.aiResult.cross_chapter_patterns?.length) {
-      renderCrossChapterPatterns(doc, params.aiResult.cross_chapter_patterns);
+    // ---- Related topic pairs ----
+    const relatedPairs =
+      params.aiResult.related_topic_pairs ??
+      (params.aiResult as any).cross_chapter_patterns ??
+      [];
+    if (relatedPairs.length) {
+      renderRelatedTopicPairs(doc, relatedPairs);
     }
 
     // ---- Strategy Tiers ----
-    renderStrategyTiers(doc, params.aiResult.chapters);
+    renderStrategyTiers(doc, topics);
 
     // ---- Overall strategy ----
     ensureSpace(doc, 100);

@@ -17,16 +17,16 @@ description: Full-stack overview — React/Clerk frontend, Express API, Drizzle/
 - `artifacts/api-server/src/routes/analyses.ts` — analysis lifecycle (POST, GET, retry, PDF download)
 - `artifacts/smart-study-guide/src/pages/analysis-result.tsx` — results UI
 
-## AI schema (current — deep analysis)
-New schema returned by `analyzeWithAI` (as of deep-analysis feature):
-- `subject`, `years_analyzed: string[]`, `overall_strategy_tip`, `cross_chapter_patterns: string[]`
-- `chapters[]`: `chapter_name`, `overall_priority`, `total_frequency`, `years_appeared`, `confidence_level`, `marks_weightage`, `question_type_breakdown{mcq,short_answer,long_answer,numerical_or_case_study}`, `sub_topics[]{sub_topic_name,frequency,years_appeared,note}`, `study_note{kya_padhna_hai,kaise_poochha_jaata_hai,repeat_pattern}`, `key_terms[]`
-- Old schema (stored in DB for earlier analyses) had: `priority`, `frequency`, `study_note: string`. UI is backward-compatible.
+## AI schema (current — flat topics)
+Schema returned by `analyzeWithAI`:
+- `subject`, `years_analyzed: string[]`, `overall_strategy_tip`, `related_topic_pairs: string[]`
+- `topics[]`: `topic_name`, `priority`, `frequency`, `years_appeared`, `confidence_level`, `marks_weightage`, `question_type_breakdown{mcq,short,long,case_study}`, `study_note{kya_padhna_hai,kaise_poochha_jaata_hai,repeat_pattern}`, `key_terms[]`
+- Prompt explicitly says 8-12 distinct, specific topics — NOT broad umbrella categories.
 
-**Why:** The deep-analysis schema exposes sub-topic level granularity, year-wise tracking, confidence levels, and cross-chapter patterns. These are genuinely more useful than chapter-level summaries.
+**Why:** Old nested `chapters → sub_topics` structure caused the model to under-segment (collapsing everything into 1-2 broad chapters). Flat list of specific topics forces the model to split topics properly.
 
 ## Backward compat pattern
-`analysis-result.tsx` uses helper functions `getPriority(ch)` and `getFrequency(ch)` that fall back to old field names. `pdfService.ts` does the same with `?? (ch as any).priority` casts. Old stored PDFs are already generated; pdfService only needs to support the new schema going forward.
+`analysis-result.tsx` uses `getTopicName(t)` (falls back to `t.chapter_name`), `getPriority(t)` (falls back to `t.overall_priority`), `getFrequency(t)` (falls back to `t.total_frequency`). Question type fields: new schema uses `short/long/case_study`; UI checks both new and old (`short_answer/long_answer/numerical_or_case_study`) field names. `pdfService.ts` resolves `topics ?? (aiResult as any).chapters` and `related_topic_pairs ?? cross_chapter_patterns` for old stored analyses. Old stored PDFs already generated — no reprocessing needed.
 
 ## Zod schema for aiResponse
 `lib/api-zod/src/generated/api.ts` — `aiResponse` field in both `CreateAnalysisResponse` and `GetAnalysisResponse` uses `zod.record(zod.unknown()).optional()` (intentionally loose). The AI response shape evolves; strict validation at the Zod layer causes breakage. TypeScript types live in `openai.ts` instead.

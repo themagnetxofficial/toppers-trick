@@ -1,0 +1,55 @@
+Let's change the terminology and structure from "Chapters" to "Topics" throughout the app. This should also help fix the regression we discussed (where the AI was collapsing everything into 1 broad chapter).
+
+**Change 1: Terminology — rename "Chapter" to "Topic" everywhere**
+- UI labels: "Chapter Priority List" → "Topic Priority List", "chapter_name" → "topic_name", etc.
+- PDF output headings and labels
+- The "Apni Strategy Chuno" tier descriptions (currently says "X chapters" — change to "X topics")
+- Any other place "chapter" appears in the UI, PDF, or user-facing text
+
+**Change 2: Simplify the analysis structure — flat topic list instead of nested chapter → sub-topic structure**
+
+Instead of asking the AI to first identify broad "chapters" and then break each into "sub-topics" (which was likely causing the model to under-segment and collapse everything into one broad chapter), simplify this to a single, flat list of specific topics directly. Each topic should be a specific, well-defined concept/area as it actually appears in the question papers — not an umbrella category.
+
+For example, instead of:
+```
+Chapter: "Human Resource Management" 
+  → sub-topics: [Job Analysis, Recruitment, Training]
+```
+
+Just directly output:
+```
+Topics: ["Job Analysis and Design", "Recruitment and Selection", 
+         "Training and Development", "Performance Appraisal", ...]
+```//
+each as its own top-level entry with its own priority, frequency, confidence, study notes, key terms, etc. — no nesting.
+
+**Updated JSON schema:**
+```json
+{
+  "subject": "string",
+  "years_analyzed": ["2021", "2022", "2023", "2024"],
+  "topics": [
+    {
+      "topic_name": "string",
+      "priority": "High | Medium | Low",
+      "frequency": number,
+      "years_appeared": ["2022", "2023"],
+      "confidence_level": "High | Medium | Low",
+      "marks_weightage": "string",
+      "question_type_breakdown": { "short": "%", "long": "%", "mcq": "%", "case_study": "%" },
+      "study_note": {
+        "kya_padhna_hai": "string",
+        "kaise_poochha_jaata_hai": "string",
+        "repeat_pattern": "string"
+      },
+      "key_terms": ["term1", "term2"]
+    }
+  ],
+  "related_topic_pairs": ["string describing topics frequently combined in one question"],
+  "overall_strategy_tip": "string"
+}
+```
+
+**Update the system prompt instruction** to explicitly say: "Identify each distinct, specific topic that appears in the papers as its own entry — do not group multiple distinct topics under one umbrella category. A typical subject usually has 8-12 distinct topics across the syllabus — make sure you're not under-segmenting into overly broad categories."
+
+Please implement this simplified flat structure, update all UI/PDF references from "chapter" to "topic," and test with the same sample papers to confirm we're now getting multiple distinct, well-segmented topics (not just 1) before confirming it's done.

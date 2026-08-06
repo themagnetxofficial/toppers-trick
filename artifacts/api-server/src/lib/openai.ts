@@ -13,29 +13,21 @@ function getOpenAI(): OpenAI {
   return _openai;
 }
 
-export interface SubTopic {
-  sub_topic_name: string;
-  frequency: number;
-  years_appeared: string[];
-  note: string;
-}
-
 export interface QuestionTypeBreakdown {
   mcq: string;
-  short_answer: string;
-  long_answer: string;
-  numerical_or_case_study: string;
+  short: string;
+  long: string;
+  case_study: string;
 }
 
-export interface ChapterResult {
-  chapter_name: string;
-  overall_priority: "High" | "Medium" | "Low";
-  total_frequency: number;
+export interface TopicResult {
+  topic_name: string;
+  priority: "High" | "Medium" | "Low";
+  frequency: number;
   years_appeared: string[];
   confidence_level: "High" | "Medium" | "Low";
   marks_weightage: string;
   question_type_breakdown: QuestionTypeBreakdown;
-  sub_topics: SubTopic[];
   study_note: {
     kya_padhna_hai: string;
     kaise_poochha_jaata_hai: string;
@@ -47,8 +39,8 @@ export interface ChapterResult {
 export interface AiAnalysisResult {
   subject: string;
   years_analyzed: string[];
-  chapters: ChapterResult[];
-  cross_chapter_patterns: string[];
+  topics: TopicResult[];
+  related_topic_pairs: string[];
   overall_strategy_tip: string;
 }
 
@@ -61,14 +53,14 @@ export async function analyzeWithAI(params: {
   extractedText: string;
 }): Promise<{ result: AiAnalysisResult; inputTokens: number; outputTokens: number }> {
 
-  const systemPrompt = `You are an expert academic exam analyst with years of experience studying question paper patterns for Indian school and college exams. You don't just summarize — you find deep, non-obvious patterns that a professional exam coach would notice: which sub-topics within a chapter are actually tested repeatedly, how question difficulty and format has shifted across years, which chapters are frequently paired together in exams, and how confident one can be in a prediction based on the consistency of the pattern.
+  const systemPrompt = `You are an expert academic exam analyst with years of experience studying question paper patterns for Indian school and college exams. You don't just summarize — you find deep, non-obvious patterns that a professional exam coach would notice: which specific topics are actually tested repeatedly, how question difficulty and format has shifted across years, which topics are frequently paired together in exams, and how confident one can be in a prediction based on the consistency of the pattern.
 
 Rules:
-1. Analyze at the SUB-TOPIC level, not just chapter level. A chapter like "Human Resource Management" may have 5 different sub-topics tested — identify each one separately with its own frequency.
-2. Track YEAR-WISE presence — for each chapter/sub-topic, show exactly which of the provided years it appeared in, not just a total count.
-3. Identify QUESTION TYPE patterns — classify questions by format (MCQ, short answer, long answer/essay, numerical/case study) and note which format is most common for each chapter.
+1. Identify each distinct, specific topic that appears in the papers as its own entry — do NOT group multiple distinct topics under one umbrella category. A typical subject usually has 8-12 distinct topics across the syllabus — make sure you're not under-segmenting into overly broad categories. For example, "HRM" as a whole is too broad — instead identify "HRM vs Personnel Management", "HR Manager Roles", "Manpower Planning", "Training Methods", "Performance Appraisal", etc. as separate topics.
+2. Track YEAR-WISE presence — for each topic, show exactly which of the provided years it appeared in, not just a total count.
+3. Identify QUESTION TYPE patterns — classify questions by format (MCQ, short answer, long answer/essay, case study) and note which format is most common for each topic.
 4. Assign a CONFIDENCE LEVEL (High/Medium/Low) to each prediction, based on how consistent the pattern is — a topic appearing in 4 out of 5 years in a similar format deserves "High confidence," while an inconsistent or only-once appearance deserves "Low confidence." Be honest — do not inflate confidence to seem more impressive.
-5. Note any CROSS-CHAPTER PATTERNS — e.g., if two chapters are frequently combined into a single case-study question, mention this explicitly, since it changes how a student should prepare.
+5. Note any RELATED TOPIC PAIRS — if two topics are frequently combined into a single case-study or long-answer question, mention this explicitly, since it changes how a student should prepare.
 6. Only use information present in the provided papers — do not invent patterns or add outside subject knowledge beyond what's needed to name/explain a concept clearly.
 7. Write all explanatory text in casual, friendly Hinglish, in the tone of an experienced senior mentoring a student — not formal or robotic.
 8. Output ONLY valid JSON in the exact schema provided. No extra text, no markdown, no preamble.`;
@@ -89,48 +81,40 @@ Perform a deep analysis and return JSON in this exact format:
 {
   "subject": "string",
   "years_analyzed": ${JSON.stringify(params.yearLabels)},
-  "chapters": [
+  "topics": [
     {
-      "chapter_name": "string",
-      "overall_priority": "High | Medium | Low",
-      "total_frequency": number,
+      "topic_name": "string — specific concept/area, NOT a broad chapter umbrella",
+      "priority": "High | Medium | Low",
+      "frequency": number,
       "years_appeared": ["Paper 1", "Paper 2"],
       "confidence_level": "High | Medium | Low",
       "marks_weightage": "string (e.g. '15-20 marks')",
       "question_type_breakdown": {
         "mcq": "count or percentage or 'None'",
-        "short_answer": "count or percentage or 'None'",
-        "long_answer": "count or percentage or 'None'",
-        "numerical_or_case_study": "count or percentage or 'None'"
+        "short": "count or percentage or 'None'",
+        "long": "count or percentage or 'None'",
+        "case_study": "count or percentage or 'None'"
       },
-      "sub_topics": [
-        {
-          "sub_topic_name": "string",
-          "frequency": number,
-          "years_appeared": ["Paper 1"],
-          "note": "short Hinglish note — what exactly to know and how it's typically asked"
-        }
-      ],
       "study_note": {
-        "kya_padhna_hai": "Hinglish — list the specific sub-topics, theories, named concepts, formulas, or case types that actually appeared in the papers",
+        "kya_padhna_hai": "Hinglish — list the specific concepts, theories, named items, formulas, or case types that actually appeared in the papers",
         "kaise_poochha_jaata_hai": "Hinglish — describe the exact question format seen across these papers",
         "repeat_pattern": "Hinglish — if same or similar question appeared in multiple years, call it out explicitly"
       },
       "key_terms": ["term1", "term2", "term3"]
     }
   ],
-  "cross_chapter_patterns": [
-    "Hinglish string describing any chapters frequently combined in one question"
+  "related_topic_pairs": [
+    "Hinglish string describing any topics frequently combined in one question"
   ],
   "overall_strategy_tip": "Hinglish one-paragraph exam strategy based on what you saw in the papers"
 }
 
 Rules for this response:
-- overall_priority: "High" if appeared in 3+ years or carries ≥20 marks; "Medium" if 1-2 years or 10-15 marks; "Low" if rarely appears or very few marks.
+- topics: Aim for 8-12 specific topics. Each topic_name should be a precise concept, NOT a broad chapter name. Split broad areas into their actual distinct sub-concepts.
+- priority: "High" if appeared in 3+ years or carries ≥20 marks; "Medium" if 1-2 years or 10-15 marks; "Low" if rarely appears or very few marks.
 - confidence_level: "High" if pattern is very consistent (3+ years, same format); "Medium" if somewhat consistent; "Low" if only once or inconsistent.
-- sub_topics: at least 2-4 per High/Medium chapter. Identify ACTUAL sub-topics from the paper text, not generic chapter sections.
-- study_note: all 3 fields required for every chapter. For Low priority, keep kya_padhna_hai very brief (1-2 lines).
-- cross_chapter_patterns: only include if genuinely observed — empty array [] is fine if none found.
+- study_note: all 3 fields required for every topic. For Low priority, keep kya_padhna_hai very brief (1-2 lines).
+- related_topic_pairs: only include if genuinely observed — empty array [] is fine if none found.
 - Return ONLY valid JSON, no other text.`;
 
   const makeRequest = async () => {
@@ -172,7 +156,7 @@ Rules for this response:
   }
 
   // Validate required fields
-  if (!parsed.subject || !parsed.chapters || !Array.isArray(parsed.chapters)) {
+  if (!parsed.subject || !parsed.topics || !Array.isArray(parsed.topics)) {
     throw new Error("Invalid AI response schema");
   }
 

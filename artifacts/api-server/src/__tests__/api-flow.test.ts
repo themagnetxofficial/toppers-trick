@@ -161,28 +161,20 @@ vi.mock("../lib/openai", () => ({
     result: {
       subject: "Physics",
       years_analyzed: ["Paper 1"],
-      chapters: [
+      topics: [
         {
-          chapter_name: "Mechanics",
-          overall_priority: "High",
-          total_frequency: 5,
+          topic_name: "Newton's Laws of Motion",
+          priority: "High",
+          frequency: 5,
           years_appeared: ["Paper 1"],
           confidence_level: "High",
           marks_weightage: "20 marks",
           question_type_breakdown: {
             mcq: "None",
-            short_answer: "None",
-            long_answer: "5×",
-            numerical_or_case_study: "None",
+            short: "None",
+            long: "5×",
+            case_study: "None",
           },
-          sub_topics: [
-            {
-              sub_topic_name: "Newton's Laws",
-              frequency: 3,
-              years_appeared: ["Paper 1"],
-              note: "Laws of motion pe long answer aata hai",
-            },
-          ],
           study_note: {
             kya_padhna_hai: "Newton's Laws aur equations of motion",
             kaise_poochha_jaata_hai: "Long answer 10-15 marks ka",
@@ -191,8 +183,8 @@ vi.mock("../lib/openai", () => ({
           key_terms: ["Newton's Laws", "Equations of Motion"],
         },
       ],
-      cross_chapter_patterns: [],
-      overall_strategy_tip: "Start with Mechanics",
+      related_topic_pairs: [],
+      overall_strategy_tip: "Start with Newton's Laws",
     },
     inputTokens: 100,
     outputTokens: 200,
