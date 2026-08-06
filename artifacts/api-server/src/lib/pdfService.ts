@@ -10,6 +10,9 @@ import fs from "fs";
 const API_SERVER_ROOT = path.resolve(import.meta.dirname, "..");
 const UPLOADS_DIR = path.join(API_SERVER_ROOT, "uploads");
 const PDF_OUTPUT_DIR = path.join(API_SERVER_ROOT, "generated_pdfs");
+const FONT_DIR = path.join(API_SERVER_ROOT, "assets", "fonts");
+const KALAM = path.join(FONT_DIR, "Kalam-Regular.ttf");
+const KALAM_BOLD = path.join(FONT_DIR, "Kalam-Bold.ttf");
 
 export function ensureDirectories() {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -44,6 +47,12 @@ const PRIORITY_BG: Record<string, string> = {
   High: "#FEF2F2",
   Medium: "#FFFBEB",
   Low: "#F0FDF4",
+};
+// Highlighter-marker fills — brighter/more saturated than BG for the "marked with a pen" look
+const PRIORITY_HL: Record<string, string> = {
+  High: "#FCA5A5",    // vivid red highlight
+  Medium: "#FCD34D",  // vivid amber/yellow highlight
+  Low: "#6EE7B7",    // vivid green highlight
 };
 
 // ---------------------------------------------------------------------------
@@ -83,9 +92,26 @@ function estimateTextHeight(
   return lines * lineHeight;
 }
 
+/**
+ * Draw faint notebook-paper ruled lines across the current page.
+ * Called at the start of every page so content sits on a subtle lined background.
+ */
+function drawNotebookLines(doc: InstanceType<typeof PDFDocument>) {
+  const lineSpacing = 14.4; // pt — matches 12pt body text at 1.2× leading
+  const lineColor = "#DDE6F0";
+  const lineWidth = 0.25;
+  doc.save();
+  doc.strokeColor(lineColor).lineWidth(lineWidth);
+  for (let y = MARGIN; y < PAGE_H - 20; y += lineSpacing) {
+    doc.moveTo(MARGIN - 4, y).lineTo(PAGE_W - MARGIN + 4, y).stroke();
+  }
+  doc.restore();
+}
+
 /** Add a new page and reset the cursor to the top margin. */
 function newPage(doc: InstanceType<typeof PDFDocument>) {
   doc.addPage();
+  drawNotebookLines(doc);
   doc.text("", MARGIN, MARGIN);
 }
 
@@ -175,13 +201,13 @@ function renderHeader(
 
   doc.text("", MARGIN, 30);
 
-  // Title
-  doc.fontSize(26).fillColor("#D97706").font("Helvetica-Bold")
+  // Title — handwriting font for that personal-notes feel
+  doc.fontSize(28).fillColor("#D97706").font("Kalam-Bold")
     .text("Smart Study Guide", MARGIN, 30, { width: CONTENT_W, align: "center" });
   doc.moveDown(0.4);
 
-  // Subject
-  doc.fontSize(20).fillColor("#111827").font("Helvetica-Bold")
+  // Subject — also handwriting, slightly smaller
+  doc.fontSize(20).fillColor("#111827").font("Kalam-Bold")
     .text(params.subject, MARGIN, doc.y, { width: CONTENT_W, align: "center" });
   doc.moveDown(0.3);
 
@@ -208,7 +234,7 @@ function renderSummaryTable(
   doc: InstanceType<typeof PDFDocument>,
   chapters: ChapterResult[]
 ) {
-  doc.fontSize(13).fillColor("#D97706").font("Helvetica-Bold")
+  doc.fontSize(15).fillColor("#D97706").font("Kalam-Bold")
     .text("Chapter Priority Overview", MARGIN, doc.y, { width: CONTENT_W });
   doc.moveDown(0.6);
 
@@ -254,18 +280,14 @@ function renderSummaryTable(
     doc.fontSize(9).fillColor("#111827").font("Helvetica")
       .text(ch.chapter_name || "—", cols[0].x + 4, rowY, { width: cols[0].w - 8 });
 
-    // Priority — colored pill
-    const pillW = 66;
+    // Priority — highlighter-marker style: vivid solid fill, no border
+    const pillW = 60;
     const pillX = cols[1].x + (cols[1].w - pillW) / 2;
     doc.save()
-      .roundedRect(pillX, rowY - 1, pillW, 13, 6)
-      .fill(PRIORITY_BG[ch.priority] ?? "#F3F4F6")
+      .roundedRect(pillX, rowY - 2, pillW, 15, 3)
+      .fill(PRIORITY_HL[ch.priority] ?? "#E5E7EB")
       .restore();
-    doc.save()
-      .roundedRect(pillX, rowY - 1, pillW, 13, 6)
-      .stroke(pColor)
-      .restore();
-    doc.fontSize(8).fillColor(pColor).font("Helvetica-Bold")
+    doc.fontSize(8).fillColor(pColor).font("Kalam-Bold")
       .text(ch.priority, pillX, rowY + 1, { width: pillW, align: "center" });
 
     // Frequency
@@ -305,29 +327,25 @@ function renderChapterNote(
 
   // Left accent bar
   doc.save()
-    .rect(MARGIN, startY, 4, 14)
+    .rect(MARGIN, startY, 4, 16)
     .fill(pColor)
     .restore();
 
-  // Chapter number + name
-  doc.fontSize(13).fillColor("#111827").font("Helvetica-Bold")
+  // Chapter number + name — handwriting font
+  doc.fontSize(14).fillColor("#111827").font("Kalam-Bold")
     .text(`${index + 1}. ${chapter.chapter_name}`, MARGIN + 12, startY, {
-      width: CONTENT_W - 80,
+      width: CONTENT_W - 100,
     });
 
-  // Priority pill — draw to the right of the heading
-  const pillY = startY;
+  // Priority pill — highlighter-marker style (vivid fill, no border)
+  const pillY = startY + 1;
   const pillW = 90;
   const pillX = PAGE_W - MARGIN - pillW;
   doc.save()
-    .roundedRect(pillX, pillY, pillW, 15, 7)
-    .fill(pBg)
+    .roundedRect(pillX, pillY, pillW, 16, 4)
+    .fill(PRIORITY_HL[chapter.priority] ?? "#E5E7EB")
     .restore();
-  doc.save()
-    .roundedRect(pillX, pillY, pillW, 15, 7)
-    .stroke(pColor)
-    .restore();
-  doc.fontSize(8).fillColor(pColor).font("Helvetica-Bold")
+  doc.fontSize(8.5).fillColor(pColor).font("Kalam-Bold")
     .text(`${chapter.priority} Priority`, pillX, pillY + 3, { width: pillW, align: "center" });
 
   doc.moveDown(0.5);
@@ -351,10 +369,10 @@ function renderChapterNote(
       resetX(doc);
       ensureSpace(doc, 40);
 
-      // Part label
-      doc.fontSize(9).fillColor(pColor).font("Helvetica-Bold")
+      // Part label — handwriting font for that personal-notes feel
+      doc.fontSize(10.5).fillColor(pColor).font("Kalam-Bold")
         .text(`${part.label}:`, MARGIN, doc.y, { width: CONTENT_W });
-      doc.moveDown(0.15);
+      doc.moveDown(0.1);
 
       // Part body — indented slightly
       resetX(doc);
@@ -378,16 +396,33 @@ function renderChapterNote(
     ensureSpace(doc, chapter.key_terms.length * 14 + 24);
     resetX(doc);
 
-    // Key terms header
-    doc.fontSize(9).fillColor("#6B7280").font("Helvetica-Bold")
-      .text("Key Terms:", MARGIN, doc.y, { width: CONTENT_W });
-    doc.moveDown(0.2);
+    // Key terms header — handwriting font
+    doc.fontSize(10).fillColor("#92400E").font("Kalam-Bold")
+      .text("📌 Key Terms:", MARGIN, doc.y, { width: CONTENT_W });
+    doc.moveDown(0.25);
 
-    // Each term on its own line with a bullet
+    // Each term rendered as a sticky-note chip: amber background, handwriting label
     chapter.key_terms.forEach((term) => {
       resetX(doc);
-      doc.fontSize(9).fillColor("#374151").font("Helvetica")
-        .text(`  •  ${term}`, MARGIN, doc.y, { width: CONTENT_W });
+      ensureSpace(doc, 18);
+      const termX = MARGIN + 4;
+      const termY = doc.y;
+      // Measure approximate chip width (capped at CONTENT_W)
+      const chipW = Math.min(term.length * 6.5 + 20, CONTENT_W - 8);
+      // Amber sticky-note background
+      doc.save()
+        .roundedRect(termX, termY, chipW, 16, 3)
+        .fill("#FEF3C7")
+        .restore();
+      // Subtle left border accent
+      doc.save()
+        .rect(termX, termY, 3, 16)
+        .fill("#F59E0B")
+        .restore();
+      // Term text
+      doc.fontSize(9).fillColor("#78350F").font("Kalam")
+        .text(`  ${term}`, termX, termY + 2, { width: chipW - 4, lineBreak: false });
+      doc.moveDown(0.5);
     });
   }
 
@@ -462,7 +497,7 @@ function renderStrategyTiers(
 ) {
   newPage(doc);
 
-  doc.fontSize(16).fillColor("#D97706").font("Helvetica-Bold")
+  doc.fontSize(20).fillColor("#D97706").font("Kalam-Bold")
     .text("Apni Strategy Chuno", MARGIN, doc.y, { width: CONTENT_W });
   doc.moveDown(0.2);
   doc.fontSize(10).fillColor("#6B7280").font("Helvetica")
@@ -493,8 +528,8 @@ function renderStrategyTiers(
       .fill(tier.color)
       .restore();
 
-    // Tier heading
-    doc.fontSize(12).fillColor(tier.color).font("Helvetica-Bold")
+    // Tier heading — handwriting font
+    doc.fontSize(13).fillColor(tier.color).font("Kalam-Bold")
       .text(`${tier.emoji}  ${tier.title}`, MARGIN + 12, boxTop + 10, {
         width: CONTENT_W - 20,
       });
@@ -560,6 +595,13 @@ export function generateStudyGuidePdf(params: {
       bufferPages: false,
     });
 
+    // Register embedded Kalam fonts for handwriting-style headings
+    doc.registerFont("Kalam", KALAM);
+    doc.registerFont("Kalam-Bold", KALAM_BOLD);
+
+    // Draw notebook ruled lines on the first (auto-created) page
+    drawNotebookLines(doc);
+
     doc.pipe(stream);
 
     // ---- Header ----
@@ -577,7 +619,7 @@ export function generateStudyGuidePdf(params: {
     // Always start notes on a fresh page for clean separation
     newPage(doc);
 
-    doc.fontSize(16).fillColor("#D97706").font("Helvetica-Bold")
+    doc.fontSize(20).fillColor("#D97706").font("Kalam-Bold")
       .text("Detailed Study Notes", MARGIN, doc.y, { width: CONTENT_W });
     doc.moveDown(0.3);
 
@@ -613,7 +655,7 @@ export function generateStudyGuidePdf(params: {
     doc.moveDown(1);
     resetX(doc);
 
-    doc.fontSize(13).fillColor("#D97706").font("Helvetica-Bold")
+    doc.fontSize(16).fillColor("#D97706").font("Kalam-Bold")
       .text("Overall Exam Strategy", MARGIN, doc.y, { width: CONTENT_W });
     doc.moveDown(0.5);
     resetX(doc);

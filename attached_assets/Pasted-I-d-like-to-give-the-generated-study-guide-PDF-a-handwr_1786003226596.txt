@@ -1,0 +1,17 @@
+I'd like to give the generated study-guide PDF a "handwritten notes" aesthetic — like notes from a topper senior — to make it feel more personal and engaging for students, rather than looking like a plain corporate report.
+
+Please implement this with a hybrid approach (not making the entire PDF handwritten, since that hurts readability for long study content):
+
+1. **Chapter titles and section headers** (e.g., "Human Resource Management (HRM)", "Kya Padhna Hai", "Kaise Poochha Jaata Hai", "Repeat Pattern", "Key Terms") should use a handwriting-style font — something like "Kalam", "Caveat", "Patrick Hand", or "Indie Flower" (these are free Google Fonts, embed whichever renders most clearly at small sizes and looks legitimately handwritten, not childish).
+
+2. **Main body text** (the actual note content students need to read and study) should stay in a clean, easily readable font as it is now — don't apply the handwriting font here, since long paragraphs in a handwriting font become tiring to read and could hurt usability.
+
+3. **Priority badges** (High/Medium/Low) could get a "highlighter marker" visual style — e.g., a rounded highlight background behind the text, like it was marked with an actual highlighter pen.
+
+4. **Key Terms** could be styled like handwritten sticky notes or underlined/circled as if marked by hand, to make them visually pop.
+
+5. Optionally, consider a very subtle notebook-paper background (faint horizontal ruled lines) behind the content — but keep it light/low-opacity so it doesn't reduce text contrast or readability, and make sure it doesn't increase the PDF file size significantly or slow down generation.
+
+6. Make sure the handwriting font is properly embedded in the PDF (not just referenced), so it renders correctly for every student who downloads it, regardless of their device/OS having that font installed.
+
+Please implement this, generate a fresh test PDF, and show me the result so I can confirm the balance between "looks handwritten and personal" and "still easy to actually study from" feels right. If needed, we can adjust which elements get the handwriting treatment based on how it looks.
