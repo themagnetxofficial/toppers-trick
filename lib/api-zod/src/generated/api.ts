@@ -86,19 +86,7 @@ export const CreateAnalysisResponse = zod.object({
   "yearsAnalyzed": zod.number().nullish(),
   "status": zod.enum(['pending', 'processing', 'completed', 'failed']),
   "errorMessage": zod.string().nullish(),
-  "aiResponse": zod.object({
-  "subject": zod.string(),
-  "category": zod.string(),
-  "years_analyzed": zod.number(),
-  "chapters": zod.array(zod.object({
-  "chapter_name": zod.string(),
-  "frequency": zod.number(),
-  "marks_weightage": zod.string(),
-  "priority": zod.enum(['High', 'Medium', 'Low']),
-  "study_note": zod.string().nullish()
-})),
-  "overall_strategy_tip": zod.string()
-}).optional(),
+  "aiResponse": zod.record(zod.unknown()).optional(),
   "hasPdf": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
@@ -120,19 +108,7 @@ export const GetAnalysisResponse = zod.object({
   "yearsAnalyzed": zod.number().nullish(),
   "status": zod.enum(['pending', 'processing', 'completed', 'failed']),
   "errorMessage": zod.string().nullish(),
-  "aiResponse": zod.object({
-  "subject": zod.string(),
-  "category": zod.string(),
-  "years_analyzed": zod.number(),
-  "chapters": zod.array(zod.object({
-  "chapter_name": zod.string(),
-  "frequency": zod.number(),
-  "marks_weightage": zod.string(),
-  "priority": zod.enum(['High', 'Medium', 'Low']),
-  "study_note": zod.string().nullish()
-})),
-  "overall_strategy_tip": zod.string()
-}).optional(),
+  "aiResponse": zod.record(zod.unknown()).optional(),
   "hasPdf": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })

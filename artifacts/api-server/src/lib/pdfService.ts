@@ -1,12 +1,8 @@
 import PDFDocument from "pdfkit";
-import { AiAnalysisResult, ChapterResult, StudyContent } from "./openai";
+import { AiAnalysisResult, ChapterResult, SubTopic } from "./openai";
 import path from "path";
 import fs from "fs";
 
-// process.cwd() is the pnpm workspace root when run via --filter, not the
-// api-server directory. Use import.meta.dirname (Node 21+) to anchor paths
-// to the compiled output file's location, then go up one level to the
-// api-server package root.
 const API_SERVER_ROOT = path.resolve(import.meta.dirname, "..");
 const UPLOADS_DIR = path.join(API_SERVER_ROOT, "uploads");
 const PDF_OUTPUT_DIR = path.join(API_SERVER_ROOT, "generated_pdfs");
@@ -36,7 +32,7 @@ const PAGE_W = 595.28;
 const MARGIN = 48;
 const CONTENT_W = PAGE_W - MARGIN * 2; // 499.28
 const PAGE_H = 841.89;
-const BOTTOM_MARGIN = 60; // space to keep clear at bottom
+const BOTTOM_MARGIN = 60;
 
 const PRIORITY_COLORS: Record<string, string> = {
   High: "#DC2626",
@@ -48,26 +44,30 @@ const PRIORITY_BG: Record<string, string> = {
   Medium: "#FFFBEB",
   Low: "#F0FDF4",
 };
-// Highlighter-marker fills — brighter/more saturated than BG for the "marked with a pen" look
 const PRIORITY_HL: Record<string, string> = {
-  High: "#FCA5A5",    // vivid red highlight
-  Medium: "#FCD34D",  // vivid amber/yellow highlight
-  Low: "#6EE7B7",    // vivid green highlight
+  High: "#FCA5A5",
+  Medium: "#FCD34D",
+  Low: "#6EE7B7",
+};
+const CONFIDENCE_HL: Record<string, string> = {
+  High: "#BBF7D0",
+  Medium: "#FDE68A",
+  Low: "#FECACA",
+};
+const CONFIDENCE_TEXT: Record<string, string> = {
+  High: "#166534",
+  Medium: "#92400E",
+  Low: "#991B1B",
 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Reset x cursor to left margin and return current y. PDFKit forgets x after
- *  absolute-positioned text calls; calling this before any flow-text block is
- *  essential to avoid text starting mid-page. */
 function resetX(doc: InstanceType<typeof PDFDocument>) {
-  // Writing an empty string at the margin anchors the cursor x without moving y
   doc.text("", MARGIN, doc.y);
 }
 
-/** Draw a horizontal rule at current y, then advance */
 function hRule(
   doc: InstanceType<typeof PDFDocument>,
   color = "#E5E7EB",
@@ -78,8 +78,6 @@ function hRule(
   doc.moveDown(0.6);
 }
 
-/** Estimate text height for a given string, font size, and width. Used for
- *  pre-emptive page breaks — avoids orphaned headings. */
 function estimateTextHeight(
   doc: InstanceType<typeof PDFDocument>,
   text: string,
@@ -92,12 +90,8 @@ function estimateTextHeight(
   return lines * lineHeight;
 }
 
-/**
- * Draw faint notebook-paper ruled lines across the current page.
- * Called at the start of every page so content sits on a subtle lined background.
- */
 function drawNotebookLines(doc: InstanceType<typeof PDFDocument>) {
-  const lineSpacing = 14.4; // pt — matches 12pt body text at 1.2× leading
+  const lineSpacing = 14.4;
   const lineColor = "#DDE6F0";
   const lineWidth = 0.25;
   doc.save();
@@ -108,14 +102,12 @@ function drawNotebookLines(doc: InstanceType<typeof PDFDocument>) {
   doc.restore();
 }
 
-/** Add a new page and reset the cursor to the top margin. */
 function newPage(doc: InstanceType<typeof PDFDocument>) {
   doc.addPage();
   drawNotebookLines(doc);
   doc.text("", MARGIN, MARGIN);
 }
 
-/** Guard: if remaining space is less than minHeight, add a new page. */
 function ensureSpace(
   doc: InstanceType<typeof PDFDocument>,
   minHeight: number
@@ -123,61 +115,6 @@ function ensureSpace(
   if (doc.y + minHeight > PAGE_H - BOTTOM_MARGIN) {
     newPage(doc);
   }
-}
-
-/**
- * Parse a three-part AI study note into labelled segments.
- * The AI produces notes like:
- *   "Kya padhna hai: ... Kaise poochha jaata hai: ... Repeat pattern: ..."
- * We split on these known labels so each part can be rendered distinctly.
- */
-function parseNoteParts(note: string): Array<{ label: string; body: string }> {
-  const PATTERNS = [
-    /kya\s+padhna\s+hai\s*:/i,
-    /kaise\s+poochha?\s+jaata?\s+hai\s*:/i,
-    /repeat\s+pattern\s*:/i,
-  ];
-  const LABELS = ["Kya Padhna Hai", "Kaise Poochha Jaata Hai", "Repeat Pattern"];
-
-  // Find positions of each label in the note text
-  const positions: Array<{ idx: number; label: string }> = [];
-  for (let i = 0; i < PATTERNS.length; i++) {
-    const m = note.match(PATTERNS[i]);
-    if (m && m.index !== undefined) {
-      positions.push({ idx: m.index, label: LABELS[i] });
-    }
-  }
-
-  if (positions.length === 0) {
-    // No three-part structure — return as single block
-    return [{ label: "", body: cleanNoteBody(note) }];
-  }
-
-  positions.sort((a, b) => a.idx - b.idx);
-
-  const parts: Array<{ label: string; body: string }> = [];
-  for (let i = 0; i < positions.length; i++) {
-    const start = positions[i].idx;
-    const end = i + 1 < positions.length ? positions[i + 1].idx : note.length;
-    // strip the label text itself from the body, then clean trailing artefacts
-    let body = note.slice(start, end);
-    body = body.replace(PATTERNS[i], "").trim();
-    body = cleanNoteBody(body);
-    if (body) parts.push({ label: positions[i].label, body });
-  }
-  return parts;
-}
-
-/**
- * Strip stray (a)/(b)/(c) letter-label artefacts that the model sometimes
- * appends to the end of a section body (e.g. "…in modern organizations. (b)").
- * Also normalises excess whitespace.
- */
-function cleanNoteBody(text: string): string {
-  return text
-    .replace(/\s*\([abc]\)\s*$/i, "")   // trailing (a)/(b)/(c)
-    .replace(/\s*\([abc]\)\s*/gi, " ")  // mid-text (a)/(b)/(c)
-    .trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -190,28 +127,23 @@ function renderHeader(
     subject: string;
     classOrCourse?: string | null;
     boardOrUniversity?: string | null;
-    yearsAnalyzed: number;
+    yearsAnalyzed: number | string[];
   }
 ) {
-  // Orange accent bar at top
   doc.save()
     .rect(0, 0, PAGE_W, 6)
     .fill("#D97706")
     .restore();
 
   doc.text("", MARGIN, 30);
-
-  // Title — handwriting font for that personal-notes feel
   doc.fontSize(28).fillColor("#D97706").font("Kalam-Bold")
     .text("Smart Study Guide", MARGIN, 30, { width: CONTENT_W, align: "center" });
   doc.moveDown(0.4);
 
-  // Subject — also handwriting, slightly smaller
   doc.fontSize(20).fillColor("#111827").font("Kalam-Bold")
     .text(params.subject, MARGIN, doc.y, { width: CONTENT_W, align: "center" });
   doc.moveDown(0.3);
 
-  // Meta line
   const meta = [params.classOrCourse, params.boardOrUniversity]
     .filter(Boolean).join("  ·  ");
   if (meta) {
@@ -220,8 +152,12 @@ function renderHeader(
     doc.moveDown(0.25);
   }
 
+  const yearsLabel = Array.isArray(params.yearsAnalyzed)
+    ? `${params.yearsAnalyzed.length} year(s) of previous papers`
+    : `${params.yearsAnalyzed} year(s) of previous papers`;
+
   doc.fontSize(10).fillColor("#9CA3AF").font("Helvetica")
-    .text(`Based on ${params.yearsAnalyzed} year(s) of previous papers`, MARGIN, doc.y, {
+    .text(`Based on ${yearsLabel}`, MARGIN, doc.y, {
       width: CONTENT_W,
       align: "center",
     });
@@ -238,15 +174,15 @@ function renderSummaryTable(
     .text("Chapter Priority Overview", MARGIN, doc.y, { width: CONTENT_W });
   doc.moveDown(0.6);
 
-  // Column layout
+  // Columns: Chapter(205) | Priority(70) | Confidence(75) | Freq(45) | Marks(100)
   const cols = [
-    { label: "Chapter / Topic", w: 235, x: MARGIN },
-    { label: "Priority", w: 80, x: MARGIN + 235 },
-    { label: "Frequency", w: 75, x: MARGIN + 315 },
-    { label: "Marks", w: 90, x: MARGIN + 390 },
+    { label: "Chapter / Topic", w: 205, x: MARGIN },
+    { label: "Priority", w: 70, x: MARGIN + 205 },
+    { label: "Confidence", w: 75, x: MARGIN + 275 },
+    { label: "Freq", w: 45, x: MARGIN + 350 },
+    { label: "Marks", w: 99, x: MARGIN + 395 },
   ];
 
-  // Header row background
   const headerY = doc.y;
   doc.save()
     .rect(MARGIN, headerY - 4, CONTENT_W, 20)
@@ -269,43 +205,53 @@ function renderSummaryTable(
       rowY = MARGIN;
     }
 
-    // Alternating row tint
     if (idx % 2 === 1) {
       doc.save().rect(MARGIN, rowY - 2, CONTENT_W, 18).fill("#FAFAFA").restore();
     }
 
-    const pColor = PRIORITY_COLORS[ch.priority] ?? "#374151";
+    const priority = ch.overall_priority ?? (ch as any).priority ?? "Low";
+    const confidence = ch.confidence_level ?? "Medium";
+    const pColor = PRIORITY_COLORS[priority] ?? "#374151";
 
     // Chapter name
     doc.fontSize(9).fillColor("#111827").font("Helvetica")
       .text(ch.chapter_name || "—", cols[0].x + 4, rowY, { width: cols[0].w - 8 });
 
-    // Priority — highlighter-marker style: vivid solid fill, no border
-    const pillW = 60;
+    // Priority pill
+    const pillW = 55;
     const pillX = cols[1].x + (cols[1].w - pillW) / 2;
     doc.save()
       .roundedRect(pillX, rowY - 2, pillW, 15, 3)
-      .fill(PRIORITY_HL[ch.priority] ?? "#E5E7EB")
+      .fill(PRIORITY_HL[priority] ?? "#E5E7EB")
       .restore();
     doc.fontSize(8).fillColor(pColor).font("Kalam-Bold")
-      .text(ch.priority, pillX, rowY + 1, { width: pillW, align: "center" });
+      .text(priority, pillX, rowY + 1, { width: pillW, align: "center" });
+
+    // Confidence pill
+    const confW = 58;
+    const confX = cols[2].x + (cols[2].w - confW) / 2;
+    doc.save()
+      .roundedRect(confX, rowY - 2, confW, 15, 3)
+      .fill(CONFIDENCE_HL[confidence] ?? "#E5E7EB")
+      .restore();
+    doc.fontSize(8).fillColor(CONFIDENCE_TEXT[confidence] ?? "#374151").font("Kalam-Bold")
+      .text(confidence, confX, rowY + 1, { width: confW, align: "center" });
 
     // Frequency
+    const freq = ch.total_frequency ?? (ch as any).frequency ?? 0;
     doc.fontSize(9).fillColor("#374151").font("Helvetica")
-      .text(`${ch.frequency}×`, cols[2].x + 4, rowY, { width: cols[2].w - 4, align: "center" });
+      .text(`${freq}×`, cols[3].x + 4, rowY, { width: cols[3].w - 4, align: "center" });
 
     // Marks
     doc.fontSize(9).fillColor("#374151").font("Helvetica")
-      .text(ch.marks_weightage, cols[3].x + 4, rowY, { width: cols[3].w - 4 });
+      .text(ch.marks_weightage ?? "—", cols[4].x + 4, rowY, { width: cols[4].w - 4 });
 
     rowY += 18;
   });
 
-  // Table bottom border
   doc.save().moveTo(MARGIN, rowY).lineTo(PAGE_W - MARGIN, rowY)
     .strokeColor("#D1D5DB").lineWidth(0.5).stroke().restore();
 
-  // Sync PDFKit internal cursor to after the table
   doc.text("", MARGIN, rowY + 16);
   doc.moveDown(0.5);
 }
@@ -315,66 +261,94 @@ function renderChapterNote(
   chapter: ChapterResult,
   index: number
 ) {
-  const pColor = PRIORITY_COLORS[chapter.priority] ?? "#374151";
-  const pBg = PRIORITY_BG[chapter.priority] ?? "#F9FAFB";
+  const priority = chapter.overall_priority ?? (chapter as any).priority ?? "Low";
+  const pColor = PRIORITY_COLORS[priority] ?? "#374151";
+  const confidence = chapter.confidence_level ?? "Medium";
+  const freq = chapter.total_frequency ?? (chapter as any).frequency ?? 0;
 
-  // Estimate block height for page-break guard (rough: heading + note + key terms)
-  const noteHeight = estimateTextHeight(doc, chapter.study_note ?? "", 10, CONTENT_W - 20);
-  const blockHeight = 24 + noteHeight + (chapter.key_terms?.length ? chapter.key_terms.length * 14 + 20 : 0) + 30;
-  ensureSpace(doc, Math.min(blockHeight, 220)); // trigger page break if less than ~220pt left
+  const subTopics = chapter.sub_topics ?? [];
+  const blockHeight = 80 + subTopics.length * 24 + 60;
+  ensureSpace(doc, Math.min(blockHeight, 200));
 
   const startY = doc.y;
 
   // Left accent bar
-  doc.save()
-    .rect(MARGIN, startY, 4, 16)
-    .fill(pColor)
-    .restore();
+  doc.save().rect(MARGIN, startY, 4, 16).fill(pColor).restore();
 
-  // Chapter number + name — handwriting font
+  // Chapter heading
   doc.fontSize(14).fillColor("#111827").font("Kalam-Bold")
     .text(`${index + 1}. ${chapter.chapter_name}`, MARGIN + 12, startY, {
-      width: CONTENT_W - 100,
+      width: CONTENT_W - 200,
     });
 
-  // Priority pill — highlighter-marker style (vivid fill, no border)
+  // Priority pill
   const pillY = startY + 1;
-  const pillW = 90;
+  const pillW = 80;
   const pillX = PAGE_W - MARGIN - pillW;
   doc.save()
     .roundedRect(pillX, pillY, pillW, 16, 4)
-    .fill(PRIORITY_HL[chapter.priority] ?? "#E5E7EB")
+    .fill(PRIORITY_HL[priority] ?? "#E5E7EB")
     .restore();
   doc.fontSize(8.5).fillColor(pColor).font("Kalam-Bold")
-    .text(`${chapter.priority} Priority`, pillX, pillY + 3, { width: pillW, align: "center" });
+    .text(`${priority} Priority`, pillX, pillY + 3, { width: pillW, align: "center" });
+
+  // Confidence badge
+  const confW = 80;
+  const confX = pillX - confW - 6;
+  doc.save()
+    .roundedRect(confX, pillY, confW, 16, 4)
+    .fill(CONFIDENCE_HL[confidence] ?? "#E5E7EB")
+    .restore();
+  doc.fontSize(8.5).fillColor(CONFIDENCE_TEXT[confidence] ?? "#374151").font("Kalam-Bold")
+    .text(`${confidence} Conf.`, confX, pillY + 3, { width: confW, align: "center" });
 
   doc.moveDown(0.5);
-  resetX(doc); // ensure x is back at MARGIN after absolute text calls
+  resetX(doc);
 
-  // ---- Study note ----
-  const note = chapter.study_note ?? "";
-  const noteParts = parseNoteParts(note);
+  // Years appeared + frequency inline
+  if (Array.isArray(chapter.years_appeared) && chapter.years_appeared.length > 0) {
+    const yearsStr = chapter.years_appeared.join("  ·  ");
+    doc.fontSize(8.5).fillColor("#6B7280").font("Helvetica")
+      .text(`Appeared in: ${yearsStr}   ·   ${freq}× total`, MARGIN, doc.y, { width: CONTENT_W });
+    doc.moveDown(0.4);
+    resetX(doc);
+  }
 
-  if (noteParts.length === 1 && !noteParts[0].label) {
-    // Single block (Low priority or no three-part structure)
-    doc.fontSize(10).fillColor("#374151").font("Helvetica")
-      .text(noteParts[0].body, MARGIN, doc.y, {
-        width: CONTENT_W,
-        lineBreak: true,
-        lineGap: 2,
-      });
-  } else {
-    // Three-part structure: render each part with its label
-    noteParts.forEach((part) => {
+  // Question type breakdown — compact inline
+  if (chapter.question_type_breakdown) {
+    const qt = chapter.question_type_breakdown;
+    const parts = [
+      qt.mcq !== "None" && qt.mcq ? `MCQ: ${qt.mcq}` : null,
+      qt.short_answer !== "None" && qt.short_answer ? `Short: ${qt.short_answer}` : null,
+      qt.long_answer !== "None" && qt.long_answer ? `Long: ${qt.long_answer}` : null,
+      qt.numerical_or_case_study !== "None" && qt.numerical_or_case_study ? `Case/Num: ${qt.numerical_or_case_study}` : null,
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      doc.fontSize(8.5).fillColor("#6B7280").font("Helvetica-Oblique")
+        .text(`Question types: ${parts.join("  |  ")}`, MARGIN, doc.y, { width: CONTENT_W });
+      doc.moveDown(0.5);
+      resetX(doc);
+    }
+  }
+
+  // ---- Study note (3 sections as object) ----
+  const note = chapter.study_note;
+  if (note && typeof note === "object") {
+    const sections = [
+      { label: "Kya Padhna Hai", body: note.kya_padhna_hai },
+      { label: "Kaise Poochha Jaata Hai", body: note.kaise_poochha_jaata_hai },
+      { label: "Repeat Pattern", body: note.repeat_pattern },
+    ];
+
+    sections.forEach((part) => {
+      if (!part.body) return;
       resetX(doc);
       ensureSpace(doc, 40);
 
-      // Part label — handwriting font for that personal-notes feel
       doc.fontSize(10.5).fillColor(pColor).font("Kalam-Bold")
         .text(`${part.label}:`, MARGIN, doc.y, { width: CONTENT_W });
       doc.moveDown(0.1);
-
-      // Part body — indented slightly
       resetX(doc);
       doc.fontSize(10).fillColor("#374151").font("Helvetica")
         .text(part.body, MARGIN + 8, doc.y, {
@@ -384,11 +358,84 @@ function renderChapterNote(
         });
       doc.moveDown(0.4);
     });
+  } else if (note && typeof note === "string") {
+    // Backward compat: old string format
+    resetX(doc);
+    doc.fontSize(10).fillColor("#374151").font("Helvetica")
+      .text(note as string, MARGIN, doc.y, {
+        width: CONTENT_W,
+        lineBreak: true,
+        lineGap: 2,
+      });
+    doc.moveDown(0.5);
+  }
+
+  // ---- Sub-topics ----
+  if (subTopics.length > 0) {
+    doc.moveDown(0.2);
+    ensureSpace(doc, subTopics.length * 26 + 20);
+    resetX(doc);
+
+    doc.fontSize(10.5).fillColor("#92400E").font("Kalam-Bold")
+      .text("Sub-topics:", MARGIN, doc.y, { width: CONTENT_W });
+    doc.moveDown(0.2);
+
+    subTopics.forEach((st: SubTopic) => {
+      resetX(doc);
+      ensureSpace(doc, 30);
+      const stY = doc.y;
+
+      // Sticky chip background
+      const chipH = estimateTextHeight(doc, st.note ?? "", 9, CONTENT_W - 60) + 18;
+      doc.save()
+        .roundedRect(MARGIN + 4, stY, CONTENT_W - 8, Math.max(chipH, 26), 3)
+        .fill("#FEFCE8")
+        .restore();
+      doc.save()
+        .rect(MARGIN + 4, stY, 3, Math.max(chipH, 26))
+        .fill("#F59E0B")
+        .restore();
+
+      // Sub-topic name (line 1)
+      doc.fontSize(9).fillColor("#78350F").font("Kalam-Bold")
+        .text(`  ${st.sub_topic_name}`, MARGIN + 10, stY + 4, {
+          width: CONTENT_W - 20,
+          lineBreak: false,
+        });
+
+      // Freq + years (line 2, compact)
+      const yearsShort = (st.years_appeared ?? []).join(" · ");
+      const stFreqStr = `${st.frequency}×  ${yearsShort ? `— ${yearsShort}` : ""}`;
+      doc.fontSize(7.5).fillColor("#92400E").font("Helvetica")
+        .text(`  ${stFreqStr}`, MARGIN + 10, stY + 16, {
+          width: CONTENT_W - 20,
+          lineBreak: false,
+        });
+
+      // Note text (line 3+)
+      if (st.note) {
+        resetX(doc);
+        doc.fontSize(9).fillColor("#374151").font("Helvetica")
+          .text(st.note, MARGIN + 12, stY + 27, {
+            width: CONTENT_W - 20,
+            lineBreak: true,
+            lineGap: 1,
+          });
+        // Advance cursor past the chip
+        const chipBottom = stY + Math.max(chipH, 40);
+        if (doc.y < chipBottom) {
+          doc.text("", MARGIN, chipBottom + 2);
+        }
+      } else {
+        doc.text("", MARGIN, stY + 32);
+      }
+      doc.moveDown(0.3);
+    });
   }
 
   // ---- Key terms ----
   if (
-    (chapter.priority === "High" || chapter.priority === "Medium") &&
+    (priority === "High" || priority === "Medium") &&
     Array.isArray(chapter.key_terms) &&
     chapter.key_terms.length > 0
   ) {
@@ -396,30 +443,24 @@ function renderChapterNote(
     ensureSpace(doc, chapter.key_terms.length * 14 + 24);
     resetX(doc);
 
-    // Key terms header — handwriting font
     doc.fontSize(10).fillColor("#92400E").font("Kalam-Bold")
-      .text("📌 Key Terms:", MARGIN, doc.y, { width: CONTENT_W });
+      .text("Key Terms:", MARGIN, doc.y, { width: CONTENT_W });
     doc.moveDown(0.25);
 
-    // Each term rendered as a sticky-note chip: amber background, handwriting label
     chapter.key_terms.forEach((term) => {
       resetX(doc);
       ensureSpace(doc, 18);
       const termX = MARGIN + 4;
       const termY = doc.y;
-      // Measure approximate chip width (capped at CONTENT_W)
       const chipW = Math.min(term.length * 6.5 + 20, CONTENT_W - 8);
-      // Amber sticky-note background
       doc.save()
         .roundedRect(termX, termY, chipW, 16, 3)
         .fill("#FEF3C7")
         .restore();
-      // Subtle left border accent
       doc.save()
         .rect(termX, termY, 3, 16)
         .fill("#F59E0B")
         .restore();
-      // Term text
       doc.fontSize(9).fillColor("#78350F").font("Kalam")
         .text(`  ${term}`, termX, termY + 2, { width: chipW - 4, lineBreak: false });
       doc.moveDown(0.5);
@@ -428,8 +469,6 @@ function renderChapterNote(
 
   doc.moveDown(0.8);
   resetX(doc);
-
-  // Bottom separator for this chapter section
   hRule(doc, "#E5E7EB", 0.5);
 }
 
@@ -447,21 +486,23 @@ interface StrategyTier {
 }
 
 function buildStrategyTiers(chapters: ChapterResult[]): StrategyTier[] {
+  const getPrio = (c: ChapterResult) => c.overall_priority ?? (c as any).priority ?? "Low";
+  const getFreq = (c: ChapterResult) => c.total_frequency ?? (c as any).frequency ?? 0;
+
   const total = chapters.length;
-  const high = [...chapters.filter((c) => c.priority === "High")].sort(
-    (a, b) => b.frequency - a.frequency
+  const high = [...chapters.filter((c) => getPrio(c) === "High")].sort(
+    (a, b) => getFreq(b) - getFreq(a)
   );
-  const medium = [...chapters.filter((c) => c.priority === "Medium")].sort(
-    (a, b) => b.frequency - a.frequency
+  const medium = [...chapters.filter((c) => getPrio(c) === "Medium")].sort(
+    (a, b) => getFreq(b) - getFreq(a)
   );
-  const low = [...chapters.filter((c) => c.priority === "Low")].sort(
-    (a, b) => b.frequency - a.frequency
+  const low = [...chapters.filter((c) => getPrio(c) === "Low")].sort(
+    (a, b) => getFreq(b) - getFreq(a)
   );
 
-  // Marks coverage estimate: sum of frequencies for selected chapters / total frequencies * 100
-  const totalFreq = chapters.reduce((s, c) => s + c.frequency, 0) || 1;
+  const totalFreq = chapters.reduce((s, c) => s + getFreq(c), 0) || 1;
   const freqCoverage = (chs: ChapterResult[]) =>
-    Math.round((chs.reduce((s, c) => s + c.frequency, 0) / totalFreq) * 100);
+    Math.round((chs.reduce((s, c) => s + getFreq(c), 0) / totalFreq) * 100);
 
   return [
     {
@@ -516,32 +557,27 @@ function renderStrategyTiers(
     const boxTop = doc.y;
     const estimatedHeight = tier.chapters.length * 13 + 58;
 
-    // Tier box background
     doc.save()
       .rect(MARGIN, boxTop, CONTENT_W, estimatedHeight)
       .fill(tier.bg)
       .restore();
 
-    // Left accent strip coloured by tier
     doc.save()
       .rect(MARGIN, boxTop, 4, estimatedHeight)
       .fill(tier.color)
       .restore();
 
-    // Tier heading — handwriting font
     doc.fontSize(13).fillColor(tier.color).font("Kalam-Bold")
       .text(`${tier.emoji}  ${tier.title}`, MARGIN + 12, boxTop + 10, {
         width: CONTENT_W - 20,
       });
 
-    // Subtitle / coverage line
     resetX(doc);
     doc.fontSize(8.5).fillColor("#6B7280").font("Helvetica")
       .text(tier.subtitle, MARGIN + 12, doc.y + 2, { width: CONTENT_W - 20 });
     doc.moveDown(0.4);
     resetX(doc);
 
-    // Separator inside box
     const sepY = doc.y + 2;
     doc.save()
       .moveTo(MARGIN + 12, sepY)
@@ -553,12 +589,10 @@ function renderStrategyTiers(
     doc.moveDown(0.5);
     resetX(doc);
 
-    // Chapter list as compact bullets
     tier.chapters.forEach((ch, i) => {
       resetX(doc);
-      const bullet = i === 0 ? "1." : `${i + 1}.`;
       doc.fontSize(9).fillColor("#111827").font("Helvetica")
-        .text(`   ${bullet}  ${ch.chapter_name}`, MARGIN + 12, doc.y, {
+        .text(`   ${i + 1}.  ${ch.chapter_name}`, MARGIN + 12, doc.y, {
           width: CONTENT_W - 24,
           lineBreak: false,
         });
@@ -571,117 +605,62 @@ function renderStrategyTiers(
 }
 
 // ---------------------------------------------------------------------------
-// Study content renderer — "Chapter Notes: Padhne Ke Liye"
+// Cross-chapter patterns renderer
 // ---------------------------------------------------------------------------
 
-function renderStudyContentSection(
+function renderCrossChapterPatterns(
   doc: InstanceType<typeof PDFDocument>,
-  chapters: ChapterResult[]
+  patterns: string[]
 ) {
-  newPage(doc);
+  if (!patterns || patterns.length === 0) return;
 
-  doc.fontSize(20).fillColor("#D97706").font("Kalam-Bold")
-    .text("Chapter Notes — Padhne Ke Liye", MARGIN, doc.y, { width: CONTENT_W });
-  doc.moveDown(0.2);
-  doc.fontSize(10).fillColor("#6B7280").font("Helvetica")
+  ensureSpace(doc, patterns.length * 30 + 60);
+  resetX(doc);
+  doc.moveDown(0.5);
+
+  doc.save()
+    .rect(MARGIN, doc.y, CONTENT_W, 2)
+    .fill("#6366F1")
+    .restore();
+  doc.moveDown(0.8);
+  resetX(doc);
+
+  doc.fontSize(16).fillColor("#6366F1").font("Kalam-Bold")
+    .text("Cross-Chapter Patterns", MARGIN, doc.y, { width: CONTENT_W });
+  doc.moveDown(0.3);
+  resetX(doc);
+
+  doc.fontSize(9.5).fillColor("#6B7280").font("Helvetica")
     .text(
-      "Yeh actual study material hai — definitions, key points aur explanations jo exam mein directly kaam aayenge.",
+      "Yeh chapters exam mein aksar ek saath poochhe jaate hain — inhe milake padho.",
       MARGIN, doc.y, { width: CONTENT_W }
     );
-  doc.moveDown(0.8);
-  hRule(doc, "#D97706", 1);
+  doc.moveDown(0.6);
+  resetX(doc);
 
-  chapters.forEach((chapter) => {
-    const sc = chapter.study_content as StudyContent;
-    const pColor = PRIORITY_COLORS[chapter.priority] ?? "#374151";
-
-    // Estimate block height for page-break guard
-    const kpHeight = (sc.key_points?.length ?? 0) * 14;
-    const defHeight = estimateTextHeight(doc, sc.definition ?? "", 10, CONTENT_W);
-    const expHeight = estimateTextHeight(doc, sc.explanation ?? "", 10, CONTENT_W);
-    const blockH = 24 + defHeight + kpHeight + expHeight + 80;
-    ensureSpace(doc, Math.min(blockH, 300));
-
-    const startY = doc.y;
-
-    // Left accent bar
-    doc.save().rect(MARGIN, startY, 4, 16).fill(pColor).restore();
-
-    // Chapter heading
-    doc.fontSize(14).fillColor(pColor).font("Kalam-Bold")
-      .text(chapter.chapter_name, MARGIN + 12, startY, { width: CONTENT_W - 12 });
-    doc.moveDown(0.5);
+  patterns.forEach((pattern, i) => {
     resetX(doc);
-
-    // ---- Definition ----
-    if (sc.definition) {
-      doc.fontSize(10.5).fillColor(pColor).font("Kalam-Bold")
-        .text("📖  Definition:", MARGIN, doc.y, { width: CONTENT_W });
-      doc.moveDown(0.1);
-      resetX(doc);
-      doc.fontSize(10).fillColor("#1F2937").font("Helvetica")
-        .text(sc.definition, MARGIN + 8, doc.y, {
-          width: CONTENT_W - 8,
-          lineBreak: true,
-          lineGap: 2,
-        });
-      doc.moveDown(0.5);
-      resetX(doc);
-    }
-
-    // ---- Key Points ----
-    if (sc.key_points?.length) {
-      ensureSpace(doc, sc.key_points.length * 14 + 20);
-      doc.fontSize(10.5).fillColor(pColor).font("Kalam-Bold")
-        .text("📌  Key Points:", MARGIN, doc.y, { width: CONTENT_W });
-      doc.moveDown(0.15);
-      sc.key_points.forEach((point) => {
-        resetX(doc);
-        ensureSpace(doc, 18);
-        doc.fontSize(10).fillColor("#1F2937").font("Helvetica")
-          .text(`  •  ${point}`, MARGIN + 8, doc.y, {
-            width: CONTENT_W - 8,
-            lineBreak: true,
-            lineGap: 1,
-          });
-        doc.moveDown(0.2);
+    ensureSpace(doc, 30);
+    const patY = doc.y;
+    const patH = estimateTextHeight(doc, pattern, 9.5, CONTENT_W - 24) + 14;
+    doc.save()
+      .roundedRect(MARGIN, patY, CONTENT_W, Math.max(patH, 22), 4)
+      .fill("#EEF2FF")
+      .restore();
+    doc.save()
+      .rect(MARGIN, patY, 4, Math.max(patH, 22))
+      .fill("#6366F1")
+      .restore();
+    doc.fontSize(9).fillColor("#374151").font("Helvetica")
+      .text(`  ${i + 1}.  ${pattern}`, MARGIN + 10, patY + 6, {
+        width: CONTENT_W - 16,
+        lineBreak: true,
+        lineGap: 2,
       });
-      doc.moveDown(0.2);
-      resetX(doc);
+    if (doc.y < patY + Math.max(patH, 22)) {
+      doc.text("", MARGIN, patY + Math.max(patH, 22) + 4);
     }
-
-    // ---- Short Explanation ----
-    if (sc.explanation) {
-      ensureSpace(doc, 60);
-      // Subtle amber background box for the explanation
-      const expY = doc.y;
-      const expTextHeight = estimateTextHeight(doc, sc.explanation, 10, CONTENT_W - 24);
-      const boxH = expTextHeight + 20;
-      doc.save()
-        .rect(MARGIN, expY, CONTENT_W, boxH)
-        .fill("#FFFBEB")
-        .restore();
-      doc.save()
-        .rect(MARGIN, expY, 3, boxH)
-        .fill("#D97706")
-        .restore();
-
-      doc.fontSize(10.5).fillColor("#92400E").font("Kalam-Bold")
-        .text("💡  Short Explanation:", MARGIN + 10, expY + 6, { width: CONTENT_W - 14 });
-      doc.moveDown(0.15);
-      resetX(doc);
-      doc.fontSize(10).fillColor("#1F2937").font("Helvetica")
-        .text(sc.explanation, MARGIN + 10, doc.y, {
-          width: CONTENT_W - 14,
-          lineBreak: true,
-          lineGap: 2,
-        });
-      doc.moveDown(0.6);
-      resetX(doc);
-    }
-
-    doc.moveDown(0.3);
-    hRule(doc, "#E5E7EB", 0.5);
+    doc.moveDown(0.4);
   });
 }
 
@@ -710,13 +689,10 @@ export function generateStudyGuidePdf(params: {
       bufferPages: false,
     });
 
-    // Register embedded Kalam fonts for handwriting-style headings
     doc.registerFont("Kalam", KALAM);
     doc.registerFont("Kalam-Bold", KALAM_BOLD);
 
-    // Draw notebook ruled lines on the first (auto-created) page
     drawNotebookLines(doc);
-
     doc.pipe(stream);
 
     // ---- Header ----
@@ -724,14 +700,13 @@ export function generateStudyGuidePdf(params: {
       subject: params.subject,
       classOrCourse: params.classOrCourse,
       boardOrUniversity: params.boardOrUniversity,
-      yearsAnalyzed: params.aiResult.years_analyzed,
+      yearsAnalyzed: params.aiResult.years_analyzed ?? 1,
     });
 
     // ---- Summary table ----
     renderSummaryTable(doc, params.aiResult.chapters);
 
     // ---- Detailed notes section ----
-    // Always start notes on a fresh page for clean separation
     newPage(doc);
 
     doc.fontSize(20).fillColor("#D97706").font("Kalam-Bold")
@@ -744,26 +719,23 @@ export function generateStudyGuidePdf(params: {
     doc.moveDown(0.8);
     hRule(doc, "#D97706", 1);
 
-    // Order: High → Medium → Low
+    const getPrio = (c: ChapterResult) => c.overall_priority ?? (c as any).priority ?? "Low";
     const ordered = [
-      ...params.aiResult.chapters.filter((c) => c.priority === "High"),
-      ...params.aiResult.chapters.filter((c) => c.priority === "Medium"),
-      ...params.aiResult.chapters.filter((c) => c.priority === "Low"),
+      ...params.aiResult.chapters.filter((c) => getPrio(c) === "High"),
+      ...params.aiResult.chapters.filter((c) => getPrio(c) === "Medium"),
+      ...params.aiResult.chapters.filter((c) => getPrio(c) === "Low"),
     ];
 
     ordered.forEach((chapter, i) => {
       renderChapterNote(doc, chapter, i);
     });
 
-    // ---- Study content: Padhne Ke Liye ----
-    const chaptersWithContent = ordered.filter(
-      (c) => (c.priority === "High" || c.priority === "Medium") && c.study_content
-    );
-    if (chaptersWithContent.length > 0) {
-      renderStudyContentSection(doc, chaptersWithContent);
+    // ---- Cross-chapter patterns ----
+    if (params.aiResult.cross_chapter_patterns?.length) {
+      renderCrossChapterPatterns(doc, params.aiResult.cross_chapter_patterns);
     }
 
-    // ---- Strategy Tiers: Apni Strategy Chuno ----
+    // ---- Strategy Tiers ----
     renderStrategyTiers(doc, params.aiResult.chapters);
 
     // ---- Overall strategy ----

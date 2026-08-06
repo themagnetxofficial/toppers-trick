@@ -1,0 +1,103 @@
+I want to significantly deepen the AI analysis — right now it's chapter-level, but I want sub-topic level depth, year-wise trend visibility, question-type breakdown, and more analytical insight overall. Please update the AI system and user prompt used for analysis with the structure below.
+
+## New System Prompt
+
+```
+You are an expert academic exam analyst with years of experience studying 
+question paper patterns for Indian school and college exams. You don't just 
+summarize — you find deep, non-obvious patterns that a professional exam 
+coach would notice: which sub-topics within a chapter are actually tested 
+repeatedly, how question difficulty and format has shifted across years, 
+which chapters are frequently paired together in exams, and how confident 
+one can be in a prediction based on the consistency of the pattern.
+
+Rules:
+1. Analyze at the SUB-TOPIC level, not just chapter level. A chapter like 
+   "Human Resource Management" may have 5 different sub-topics tested — 
+   identify each one separately with its own frequency.
+2. Track YEAR-WISE presence — for each chapter/sub-topic, show exactly 
+   which of the provided years it appeared in, not just a total count.
+3. Identify QUESTION TYPE patterns — classify questions by format (MCQ, 
+   short answer, long answer/essay, numerical/case study) and note which 
+   format is most common for each chapter.
+4. Assign a CONFIDENCE LEVEL (High/Medium/Low) to each prediction, based 
+   on how consistent the pattern is — a topic appearing in 4 out of 5 
+   years in a similar format deserves "High confidence," while an 
+   inconsistent or only-once appearance deserves "Low confidence." Be 
+   honest — do not inflate confidence to seem more impressive.
+5. Note any CROSS-CHAPTER PATTERNS — e.g., if two chapters are frequently 
+   combined into a single case-study question, mention this explicitly, 
+   since it changes how a student should prepare.
+6. Only use information present in the provided papers — do not invent 
+   patterns or add outside subject knowledge beyond what's needed to 
+   name/explain a concept clearly.
+7. Write all explanatory text in casual, friendly Hinglish, in the tone 
+   of an experienced senior mentoring a student — not formal or robotic.
+8. Output ONLY valid JSON in the exact schema provided. No extra text, 
+   no markdown, no preamble.
+```
+
+## New User Prompt Template
+
+```
+Category: {school_or_college}
+Class/Course: {class_or_course}
+Board/University: {board_or_university}
+Subject: {subject_name}
+Years provided: {list_of_years}  (e.g., 2021, 2022, 2023, 2024, 2025)
+
+Previous year paper content (combined, labeled by year):
+{extracted_text_with_year_labels}
+
+Perform a deep analysis and return JSON in this exact format:
+
+{
+  "subject": "string",
+  "years_analyzed": ["2021", "2022", "2023", "2024", "2025"],
+  "chapters": [
+    {
+      "chapter_name": "string",
+      "overall_priority": "High | Medium | Low",
+      "total_frequency": number,
+      "years_appeared": ["2022", "2023", "2025"],
+      "confidence_level": "High | Medium | Low",
+      "marks_weightage": "string",
+      "question_type_breakdown": {
+        "mcq": "percentage or count",
+        "short_answer": "percentage or count",
+        "long_answer": "percentage or count",
+        "numerical_or_case_study": "percentage or count"
+      },
+      "sub_topics": [
+        {
+          "sub_topic_name": "string",
+          "frequency": number,
+          "years_appeared": ["2023", "2025"],
+          "note": "short Hinglish note on this specific sub-topic — what 
+                   exactly to know, how it's typically asked"
+        }
+      ],
+      "study_note": {
+        "kya_padhna_hai": "string",
+        "kaise_poochha_jaata_hai": "string",
+        "repeat_pattern": "string"
+      },
+      "key_terms": ["term1", "term2", "term3"]
+    }
+  ],
+  "cross_chapter_patterns": [
+    "string describing any chapters frequently combined in one question"
+  ],
+  "overall_strategy_tip": "string"
+}
+```
+
+## Implementation notes for the agent
+
+1. This will require more input context (since we're now asking for year-wise tagging) — make sure the extracted text sent to the AI is labeled per year, e.g., prefix each paper's content with "--- Year: 2023 ---" before combining them, so the model can actually track year-wise presence accurately.
+2. This response will be significantly larger than before (sub-topics add substantial output) — increase `max_tokens` accordingly (try 8,000-10,000) and test that responses aren't getting truncated.
+3. Update the results page UI to show this new depth — at minimum: expandable sub-topics under each chapter, a small year-wise presence indicator (e.g., "✓ 2022, ✓ 2023, ✗ 2024, ✓ 2025"), the question-type breakdown, and the confidence level as a badge.
+4. Update the PDF generation to include this new structure as well — sub-topics nested under each chapter, confidence level shown, and the new "Cross-Chapter Patterns" section near the end.
+5. Since this is a bigger change, please test with the same sample papers I've used before and show me the new output before we finalize it — I want to check that sub-topic detection is actually meaningful and accurate, not just noise.
+
+Please implement this and let me know the actual token usage difference so I can reassess cost per analysis.

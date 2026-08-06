@@ -5,17 +5,92 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw, Layers } from "lucide-react";
+import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw, Layers, ChevronDown, ChevronUp, Link } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+// ─── Type helpers for both old and new schema ────────────────────────────────
+
+interface SubTopic {
+  sub_topic_name: string;
+  frequency: number;
+  years_appeared?: string[];
+  note?: string;
+}
+
+interface QuestionTypeBreakdown {
+  mcq?: string;
+  short_answer?: string;
+  long_answer?: string;
+  numerical_or_case_study?: string;
+}
+
+interface StudyNoteObj {
+  kya_padhna_hai?: string;
+  kaise_poochha_jaata_hai?: string;
+  repeat_pattern?: string;
+}
+
+interface ChapterData {
+  chapter_name: string;
+  // new schema
+  overall_priority?: "High" | "Medium" | "Low";
+  total_frequency?: number;
+  years_appeared?: string[];
+  confidence_level?: "High" | "Medium" | "Low";
+  question_type_breakdown?: QuestionTypeBreakdown;
+  sub_topics?: SubTopic[];
+  study_note?: string | StudyNoteObj;
+  key_terms?: string[];
+  marks_weightage?: string;
+  // old schema compat
+  priority?: "High" | "Medium" | "Low";
+  frequency?: number;
+}
+
+function getPriority(ch: ChapterData): "High" | "Medium" | "Low" {
+  return ch.overall_priority ?? ch.priority ?? "Low";
+}
+function getFrequency(ch: ChapterData): number {
+  return ch.total_frequency ?? ch.frequency ?? 0;
+}
+
+// ─── Color helpers ────────────────────────────────────────────────────────────
+
+function priorityBadgeClass(p: string) {
+  switch (p.toLowerCase()) {
+    case "high": return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400";
+    case "medium": return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400";
+    case "low": return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400";
+    default: return "bg-gray-100 text-gray-800";
+  }
+}
+
+function confidenceBadgeClass(c: string) {
+  switch (c.toLowerCase()) {
+    case "high": return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400";
+    case "medium": return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400";
+    case "low": return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400";
+    default: return "bg-gray-100 text-gray-800";
+  }
+}
+
+function priorityAccentClass(p: string) {
+  switch (p.toLowerCase()) {
+    case "high": return "bg-red-500";
+    case "medium": return "bg-amber-500";
+    case "low": return "bg-green-500";
+    default: return "bg-gray-400";
+  }
+}
 
 export default function AnalysisResultPage() {
   const params = useParams();
   const id = parseInt(params.id || "0", 10);
 
-  const [studyTabOpen, setStudyTabOpen] = useState<Set<number>>(new Set());
-  const toggleStudyTab = (i: number) =>
-    setStudyTabOpen((prev) => {
+  const [expandedSubTopics, setExpandedSubTopics] = useState<Set<number>>(new Set());
+  const toggleSubTopics = (i: number) =>
+    setExpandedSubTopics((prev) => {
       const next = new Set(prev);
       next.has(i) ? next.delete(i) : next.add(i);
       return next;
@@ -26,7 +101,7 @@ export default function AnalysisResultPage() {
   });
 
   const { refetch: getPdfUrl } = useDownloadAnalysisPdf(id, {
-    query: { enabled: false } // only fetch when clicked
+    query: { enabled: false }
   });
 
   const { mutate: retryAnalysis, isPending: isRetrying } = useRetryAnalysis({
@@ -105,7 +180,13 @@ export default function AnalysisResultPage() {
     );
   }
 
-  const ai = analysis.aiResponse;
+  const ai = analysis.aiResponse as {
+    subject?: string;
+    years_analyzed?: string[] | number;
+    chapters?: ChapterData[];
+    cross_chapter_patterns?: string[];
+    overall_strategy_tip?: string;
+  } | undefined;
 
   const handleDownloadPdf = async () => {
     try {
@@ -115,19 +196,21 @@ export default function AnalysisResultPage() {
       } else {
         toast.error("PDF is not ready yet.");
       }
-    } catch (e) {
+    } catch {
       toast.error("Failed to generate PDF download link.");
     }
   };
 
-  const getPriorityColor = (priority: string) => {
-    switch(priority.toLowerCase()) {
-      case 'high': return 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-900/50';
-      case 'medium': return 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-900/50';
-      case 'low': return 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-900/50';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
+  const yearsDisplay = (() => {
+    const ya = ai?.years_analyzed;
+    if (Array.isArray(ya)) return `${ya.length} year(s)`;
+    if (typeof ya === "number") return `${ya} year(s)`;
+    return `${analysis.yearsAnalyzed ?? "?"} year(s)`;
+  })();
+
+  const allYears: string[] = Array.isArray(ai?.years_analyzed)
+    ? ai!.years_analyzed as string[]
+    : [];
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -141,7 +224,7 @@ export default function AnalysisResultPage() {
           </div>
           <h1 className="text-4xl font-bold font-serif text-foreground">{analysis.subject}</h1>
           <p className="text-muted-foreground flex items-center gap-2">
-            <FileText className="w-4 h-4" /> Analyzed from {ai?.years_analyzed || analysis.yearsAnalyzed || '?'} years of past papers
+            <FileText className="w-4 h-4" /> Analyzed from {yearsDisplay} of past papers
           </p>
         </div>
         <div className="relative z-10 w-full md:w-auto">
@@ -175,45 +258,55 @@ export default function AnalysisResultPage() {
         </Card>
       )}
 
+      {/* Cross-chapter patterns */}
+      {ai?.cross_chapter_patterns && ai.cross_chapter_patterns.length > 0 && (
+        <Card className="border-indigo-200 dark:border-indigo-900/30 bg-indigo-50/50 dark:bg-indigo-900/10">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Link className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              <h3 className="text-lg font-bold font-serif text-indigo-800 dark:text-indigo-300">Cross-Chapter Patterns</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">Yeh chapters exam mein aksar ek saath poochhe jaate hain — inhe milake padho.</p>
+            <ul className="space-y-2">
+              {ai.cross_chapter_patterns.map((pattern, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-foreground/80 bg-white dark:bg-indigo-900/20 rounded-lg p-3 border border-indigo-100 dark:border-indigo-900/30">
+                  <span className="text-indigo-500 font-bold shrink-0">{i + 1}.</span>
+                  {pattern}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Strategy Tiers */}
       {ai?.chapters && ai.chapters.length > 0 && (() => {
-        const high = [...ai.chapters.filter(c => c.priority === 'High')].sort((a, b) => b.frequency - a.frequency);
-        const medium = [...ai.chapters.filter(c => c.priority === 'Medium')].sort((a, b) => b.frequency - a.frequency);
-        const low = [...ai.chapters.filter(c => c.priority === 'Low')].sort((a, b) => b.frequency - a.frequency);
-        const total = ai.chapters.length;
-        const totalFreq = ai.chapters.reduce((s, c) => s + c.frequency, 0) || 1;
-        const freqCov = (chs: typeof ai.chapters) => Math.round(chs.reduce((s, c) => s + c.frequency, 0) / totalFreq * 100);
+        const chapters = ai.chapters as ChapterData[];
+        const high = chapters.filter(c => getPriority(c) === 'High').sort((a, b) => getFrequency(b) - getFrequency(a));
+        const medium = chapters.filter(c => getPriority(c) === 'Medium').sort((a, b) => getFrequency(b) - getFrequency(a));
+        const low = chapters.filter(c => getPriority(c) === 'Low').sort((a, b) => getFrequency(b) - getFrequency(a));
+        const total = chapters.length;
+        const totalFreq = chapters.reduce((s, c) => s + getFrequency(c), 0) || 1;
+        const freqCov = (chs: ChapterData[]) => Math.round(chs.reduce((s, c) => s + getFrequency(c), 0) / totalFreq * 100);
 
         const tiers = [
           {
-            emoji: '🎯',
-            title: 'Bas Pass Hona Hai',
-            subtitle: 'Just want to pass',
-            chapters: high,
-            count: high.length,
-            coverage: freqCov(high),
+            emoji: '🎯', title: 'Bas Pass Hona Hai', subtitle: 'Just want to pass',
+            chapters: high, count: high.length, coverage: freqCov(high),
             color: 'border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/30',
             badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
             dot: 'bg-red-500',
           },
           {
-            emoji: '📈',
-            title: 'Average Score Chahiye',
-            subtitle: 'Want a decent score',
-            chapters: [...high, ...medium],
-            count: high.length + medium.length,
-            coverage: freqCov([...high, ...medium]),
+            emoji: '📈', title: 'Average Score Chahiye', subtitle: 'Want a decent score',
+            chapters: [...high, ...medium], count: high.length + medium.length, coverage: freqCov([...high, ...medium]),
             color: 'border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900/30',
             badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
             dot: 'bg-amber-500',
           },
           {
-            emoji: '🏆',
-            title: 'Top Karna Hai',
-            subtitle: 'Want to top the exam',
-            chapters: [...high, ...medium, ...low],
-            count: total,
-            coverage: 100,
+            emoji: '🏆', title: 'Top Karna Hai', subtitle: 'Want to top the exam',
+            chapters: [...high, ...medium, ...low], count: total, coverage: 100,
             color: 'border-green-200 bg-green-50 dark:bg-green-900/10 dark:border-green-900/30',
             badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
             dot: 'bg-green-500',
@@ -234,7 +327,7 @@ export default function AnalysisResultPage() {
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-2xl">{tier.emoji}</span>
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tier.badge}`}>
-                        {tier.count}/{total} chapters · ~{tier.coverage}% marks
+                        {tier.count}/{total} chapters · ~{tier.coverage}%
                       </span>
                     </div>
                     <CardTitle className="text-base font-bold font-serif mt-1">{tier.title}</CardTitle>
@@ -257,125 +350,183 @@ export default function AnalysisResultPage() {
         );
       })()}
 
-      {/* Chapters Grid */}
+      {/* Chapter list */}
       <div className="space-y-6">
         <div className="flex items-center gap-2 px-2">
           <Target className="w-6 h-6 text-primary" />
           <h2 className="text-2xl font-bold font-serif">Chapter Priority List</h2>
         </div>
-        
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {ai?.chapters?.map((chapter, index) => {
-            const ch = chapter as typeof chapter & { key_terms?: string[]; study_content?: { definition: string; key_points: string[]; explanation: string } };
-            const hasStudyContent = !!ch.study_content;
-            const showStudy = studyTabOpen.has(index);
+
+        <div className="space-y-4">
+          {(ai?.chapters as ChapterData[] | undefined)?.map((chapter, index) => {
+            const priority = getPriority(chapter);
+            const frequency = getFrequency(chapter);
+            const confidence = chapter.confidence_level;
+            const hasSubTopics = Array.isArray(chapter.sub_topics) && chapter.sub_topics.length > 0;
+            const subTopicsOpen = expandedSubTopics.has(index);
+            const studyNote = chapter.study_note;
+            const isNoteObj = studyNote && typeof studyNote === "object";
+            const isNoteStr = studyNote && typeof studyNote === "string";
+
+            // Year-wise presence dots
+            const yearDots = allYears.length > 0
+              ? allYears.map(y => ({
+                  year: y,
+                  present: (chapter.years_appeared ?? []).includes(y),
+                }))
+              : (chapter.years_appeared ?? []).map(y => ({ year: y, present: true }));
+
+            const qtBreakdown = chapter.question_type_breakdown;
+            const qtParts = qtBreakdown
+              ? [
+                  qtBreakdown.mcq && qtBreakdown.mcq !== "None" ? `MCQ: ${qtBreakdown.mcq}` : null,
+                  qtBreakdown.short_answer && qtBreakdown.short_answer !== "None" ? `Short: ${qtBreakdown.short_answer}` : null,
+                  qtBreakdown.long_answer && qtBreakdown.long_answer !== "None" ? `Long: ${qtBreakdown.long_answer}` : null,
+                  qtBreakdown.numerical_or_case_study && qtBreakdown.numerical_or_case_study !== "None" ? `Case/Num: ${qtBreakdown.numerical_or_case_study}` : null,
+                ].filter(Boolean)
+              : [];
 
             return (
-              <Card key={index} className="flex flex-col h-full border-border/60 hover:shadow-md transition-all duration-300 hover:border-primary/30 relative overflow-hidden group">
-                <div className={cn("absolute top-0 left-0 w-full h-1", getPriorityColor(chapter.priority).split(' ')[0])} />
-                <CardHeader className="pb-3 pt-6">
-                  <div className="flex justify-between items-start mb-2 gap-4">
-                    <Badge variant="outline" className={cn("border px-2 py-0.5 shadow-sm", getPriorityColor(chapter.priority))}>
-                      {chapter.priority} Priority
-                    </Badge>
-                    <div className="flex flex-col items-end text-xs font-medium text-muted-foreground whitespace-nowrap bg-secondary/50 px-2 py-1 rounded-md">
-                      <span>{chapter.marks_weightage} marks</span>
-                      <span>{chapter.frequency}x asked</span>
+              <Card key={index} className="border-border/60 hover:shadow-md transition-all duration-300 hover:border-primary/30 relative overflow-hidden">
+                <div className={cn("absolute top-0 left-0 w-1 h-full", priorityAccentClass(priority))} />
+
+                <CardContent className="p-5 pl-6">
+                  {/* Top row: name + badges + freq */}
+                  <div className="flex flex-wrap items-start gap-2 mb-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-bold font-serif leading-tight">{chapter.chapter_name}</h3>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      <Badge variant="outline" className={cn("border text-xs px-2 py-0.5", priorityBadgeClass(priority))}>
+                        {priority} Priority
+                      </Badge>
+                      {confidence && (
+                        <Badge variant="outline" className={cn("border text-xs px-2 py-0.5", confidenceBadgeClass(confidence))}>
+                          {confidence} Confidence
+                        </Badge>
+                      )}
+                      <div className="text-xs font-medium text-muted-foreground bg-secondary/50 px-2 py-1 rounded-md whitespace-nowrap">
+                        {chapter.marks_weightage && <span>{chapter.marks_weightage} · </span>}
+                        {frequency}× asked
+                      </div>
                     </div>
                   </div>
-                  <CardTitle className="text-xl font-bold font-serif leading-tight group-hover:text-primary transition-colors">
-                    {chapter.chapter_name}
-                  </CardTitle>
 
-                  {/* Tab switcher — only shown when study_content is available */}
-                  {hasStudyContent && (
-                    <div className="flex mt-3 rounded-lg border border-border/60 overflow-hidden text-xs font-semibold">
-                      <button
-                        onClick={() => studyTabOpen.has(index) && toggleStudyTab(index)}
-                        className={cn(
-                          "flex-1 py-1.5 transition-colors",
-                          !showStudy
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                        )}
-                      >
-                        🎯 Exam Strategy
-                      </button>
-                      <button
-                        onClick={() => !studyTabOpen.has(index) && toggleStudyTab(index)}
-                        className={cn(
-                          "flex-1 py-1.5 transition-colors border-l border-border/60",
-                          showStudy
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                        )}
-                      >
-                        📖 Study Notes
-                      </button>
+                  {/* Year-wise presence */}
+                  {yearDots.length > 0 && (
+                    <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                      <span className="text-xs text-muted-foreground">Years:</span>
+                      {yearDots.map(({ year, present }) => (
+                        <span
+                          key={year}
+                          className={cn(
+                            "inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded",
+                            present
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : "bg-muted text-muted-foreground line-through opacity-60"
+                          )}
+                        >
+                          {present ? "✓" : "✗"} {year}
+                        </span>
+                      ))}
                     </div>
                   )}
-                </CardHeader>
 
-                <CardContent className="flex-1 pb-6 space-y-3">
-                  {/* ---- Exam Strategy tab (default) ---- */}
-                  {!showStudy && (
-                    <>
-                      {chapter.study_note ? (
-                        <div className="bg-muted/50 rounded-lg p-4 border border-border/50">
-                          <div className="flex items-start gap-2">
-                            <Sparkles className="w-4 h-4 text-primary mt-1 shrink-0" />
-                            <p className="text-sm text-foreground/80 leading-relaxed">{chapter.study_note}</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground italic p-2">
-                          <Info className="w-4 h-4" /> Study notes not available.
-                        </div>
-                      )}
-                      {Array.isArray(ch.key_terms) && ch.key_terms.length > 0 && (
-                        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                          <p className="text-xs font-semibold text-primary mb-2 uppercase tracking-wider">Key Terms</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {ch.key_terms.map((term, ti) => (
-                              <span key={ti} className="inline-block bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs text-foreground/80 font-medium">
-                                {term}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
+                  {/* Question-type breakdown */}
+                  {qtParts.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {qtParts.map((part, pi) => (
+                        <span key={pi} className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground">
+                          {part}
+                        </span>
+                      ))}
+                    </div>
                   )}
 
-                  {/* ---- Study Notes tab ---- */}
-                  {showStudy && ch.study_content && (
-                    <div className="space-y-4">
-                      {/* Definition */}
-                      <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900/30 rounded-lg p-3">
-                        <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">📖 Definition</p>
-                        <p className="text-sm text-foreground/80 leading-relaxed">{ch.study_content.definition}</p>
-                      </div>
-
-                      {/* Key Points */}
-                      {ch.study_content.key_points?.length > 0 && (
+                  {/* Study note */}
+                  {isNoteObj && (
+                    <div className="bg-muted/50 rounded-lg p-3 border border-border/50 space-y-2 mb-3">
+                      {(studyNote as StudyNoteObj).kya_padhna_hai && (
                         <div>
-                          <p className="text-xs font-bold text-primary uppercase tracking-wider mb-2">📌 Key Points</p>
-                          <ul className="space-y-1.5">
-                            {ch.study_content.key_points.map((pt, pi) => (
-                              <li key={pi} className="flex items-start gap-2 text-sm text-foreground/80">
-                                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-                                {pt}
-                              </li>
-                            ))}
-                          </ul>
+                          <p className="text-xs font-bold text-primary uppercase tracking-wider mb-0.5">Kya Padhna Hai</p>
+                          <p className="text-sm text-foreground/80 leading-relaxed">{(studyNote as StudyNoteObj).kya_padhna_hai}</p>
                         </div>
                       )}
+                      {(studyNote as StudyNoteObj).kaise_poochha_jaata_hai && (
+                        <div>
+                          <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-0.5">Kaise Poochha Jaata Hai</p>
+                          <p className="text-sm text-foreground/80 leading-relaxed">{(studyNote as StudyNoteObj).kaise_poochha_jaata_hai}</p>
+                        </div>
+                      )}
+                      {(studyNote as StudyNoteObj).repeat_pattern && (
+                        <div>
+                          <p className="text-xs font-bold text-red-600 uppercase tracking-wider mb-0.5">Repeat Pattern</p>
+                          <p className="text-sm text-foreground/80 leading-relaxed">{(studyNote as StudyNoteObj).repeat_pattern}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                      {/* Explanation */}
-                      {ch.study_content.explanation && (
-                        <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-lg p-3">
-                          <p className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-1">💡 Short Explanation</p>
-                          <p className="text-sm text-foreground/80 leading-relaxed">{ch.study_content.explanation}</p>
+                  {isNoteStr && (
+                    <div className="bg-muted/50 rounded-lg p-3 border border-border/50 mb-3">
+                      <div className="flex items-start gap-2">
+                        <Sparkles className="w-4 h-4 text-primary mt-1 shrink-0" />
+                        <p className="text-sm text-foreground/80 leading-relaxed">{studyNote as string}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!studyNote && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground italic p-2 mb-3">
+                      <Info className="w-4 h-4" /> Study notes not available.
+                    </div>
+                  )}
+
+                  {/* Key terms */}
+                  {Array.isArray(chapter.key_terms) && chapter.key_terms.length > 0 && (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 mb-3">
+                      <p className="text-xs font-semibold text-primary mb-1.5 uppercase tracking-wider">Key Terms</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {chapter.key_terms.map((term, ti) => (
+                          <span key={ti} className="inline-block bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs text-foreground/80 font-medium">
+                            {term}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sub-topics toggle */}
+                  {hasSubTopics && (
+                    <div>
+                      <button
+                        onClick={() => toggleSubTopics(index)}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors mb-2"
+                      >
+                        {subTopicsOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        {subTopicsOpen ? "Hide" : "Show"} Sub-topics ({chapter.sub_topics!.length})
+                      </button>
+
+                      {subTopicsOpen && (
+                        <div className="space-y-2 mt-1">
+                          {chapter.sub_topics!.map((st, si) => (
+                            <div key={si} className="border border-amber-200 dark:border-amber-900/30 bg-amber-50/60 dark:bg-amber-900/10 rounded-lg p-3">
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <p className="text-sm font-bold text-amber-800 dark:text-amber-300">{st.sub_topic_name}</p>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-xs text-muted-foreground">{st.frequency}×</span>
+                                  {(st.years_appeared ?? []).map(y => (
+                                    <span key={y} className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">
+                                      {y}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              {st.note && (
+                                <p className="text-xs text-foreground/70 leading-relaxed">{st.note}</p>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>

@@ -13,27 +13,42 @@ function getOpenAI(): OpenAI {
   return _openai;
 }
 
-export interface StudyContent {
-  definition: string;
-  key_points: string[];
-  explanation: string;
+export interface SubTopic {
+  sub_topic_name: string;
+  frequency: number;
+  years_appeared: string[];
+  note: string;
+}
+
+export interface QuestionTypeBreakdown {
+  mcq: string;
+  short_answer: string;
+  long_answer: string;
+  numerical_or_case_study: string;
 }
 
 export interface ChapterResult {
   chapter_name: string;
-  frequency: number;
+  overall_priority: "High" | "Medium" | "Low";
+  total_frequency: number;
+  years_appeared: string[];
+  confidence_level: "High" | "Medium" | "Low";
   marks_weightage: string;
-  priority: "High" | "Medium" | "Low";
-  study_note: string;
+  question_type_breakdown: QuestionTypeBreakdown;
+  sub_topics: SubTopic[];
+  study_note: {
+    kya_padhna_hai: string;
+    kaise_poochha_jaata_hai: string;
+    repeat_pattern: string;
+  };
   key_terms: string[];
-  study_content?: StudyContent;
 }
 
 export interface AiAnalysisResult {
   subject: string;
-  category: string;
-  years_analyzed: number;
+  years_analyzed: string[];
   chapters: ChapterResult[];
+  cross_chapter_patterns: string[];
   overall_strategy_tip: string;
 }
 
@@ -42,88 +57,86 @@ export async function analyzeWithAI(params: {
   classOrCourse: string;
   boardOrUniversity: string;
   subject: string;
-  yearCount: number;
+  yearLabels: string[];
   extractedText: string;
 }): Promise<{ result: AiAnalysisResult; inputTokens: number; outputTokens: number }> {
-  const systemPrompt = `You are a senior student mentor and academic analyst helping Indian school/college students crack their exams using previous year question papers.
 
-Your task: Deeply analyze the provided previous-year paper text and produce a chapter-wise priority guide that reads like advice from a brilliant senior who has studied all the papers carefully.
+  const systemPrompt = `You are an expert academic exam analyst with years of experience studying question paper patterns for Indian school and college exams. You don't just summarize — you find deep, non-obvious patterns that a professional exam coach would notice: which sub-topics within a chapter are actually tested repeatedly, how question difficulty and format has shifted across years, which chapters are frequently paired together in exams, and how confident one can be in a prediction based on the consistency of the pattern.
 
-STRICT RULES — follow every one without exception:
+Rules:
+1. Analyze at the SUB-TOPIC level, not just chapter level. A chapter like "Human Resource Management" may have 5 different sub-topics tested — identify each one separately with its own frequency.
+2. Track YEAR-WISE presence — for each chapter/sub-topic, show exactly which of the provided years it appeared in, not just a total count.
+3. Identify QUESTION TYPE patterns — classify questions by format (MCQ, short answer, long answer/essay, numerical/case study) and note which format is most common for each chapter.
+4. Assign a CONFIDENCE LEVEL (High/Medium/Low) to each prediction, based on how consistent the pattern is — a topic appearing in 4 out of 5 years in a similar format deserves "High confidence," while an inconsistent or only-once appearance deserves "Low confidence." Be honest — do not inflate confidence to seem more impressive.
+5. Note any CROSS-CHAPTER PATTERNS — e.g., if two chapters are frequently combined into a single case-study question, mention this explicitly, since it changes how a student should prepare.
+6. Only use information present in the provided papers — do not invent patterns or add outside subject knowledge beyond what's needed to name/explain a concept clearly.
+7. Write all explanatory text in casual, friendly Hinglish, in the tone of an experienced senior mentoring a student — not formal or robotic.
+8. Output ONLY valid JSON in the exact schema provided. No extra text, no markdown, no preamble.`;
 
-1. EVERY chapter MUST have a study_note — no exceptions, including Low priority chapters.
-   - High/Medium priority: 100–150 words. Write the note as three continuous sections, each starting with EXACTLY these label words (and a colon), with no (a)/(b)/(c) numbers or any other prefix before the label:
-       "Kya padhna hai: " — list the specific sub-topics, theories, named concepts, formulas, or case types that actually appeared in the papers (use exact names, e.g. "Maslow's Hierarchy", "EOQ formula", "Porter's Five Forces").
-       "Kaise poochha jaata hai: " — describe the exact question format seen (e.g. "ek 10-mark case study", "define + differentiate", "numerical problems on...").
-       "Repeat pattern: " — if the same or similar question appeared in multiple years, call it out explicitly (e.g. "Yeh question teen saalon mein repeat hua hai").
-   CRITICAL: Do NOT put "(a)", "(b)", "(c)" or any numbered/lettered label anywhere in the study_note. The three sections must start directly with "Kya padhna hai:", "Kaise poochha jaata hai:", and "Repeat pattern:" — nothing before them.
-   - Low priority: 2–3 sentences telling the student whether to skip entirely, skim once, or what one minimal thing to know just in case.
-   - NEVER output "No specific notes provided" or any generic placeholder.
-
-2. study_note content must be SPECIFIC to what was found in the uploaded papers — not generic textbook advice.
-   Extract sub-topic names, theory names, question types, and patterns DIRECTLY from the actual paper text.
-   Do NOT write vague advice like "concepts ache se samjho" or "barriers aur benefits samjho" without naming the specific concepts/barriers from the paper.
-
-3. For High and Medium priority chapters, include a "key_terms" array of 3–5 bullet strings (short phrases, not sentences) — these are the specific keywords, theory names, or formulas that actually appeared in the papers for that chapter. For Low priority chapters, set key_terms to an empty array [].
-
-4. For High and Medium priority chapters ONLY, include a "study_content" object with exactly three fields:
-   - "definition": 2–3 sentences. A clear, simple Hinglish definition or overview of the chapter's core concept. Write it like you're explaining to a student studying last-minute — no jargon, no textbook density. Start directly with the concept, e.g. "HRM matlab hai..." or "Marketing mix ek framework hai...".
-   - "key_points": Array of 4–6 strings. Each string is 1–2 lines covering ONE essential thing the student must know. Base these SPECIFICALLY on the sub-topics, theory names, and key_terms you already identified as high-frequency in this chapter's papers — not generic chapter-wide theory.
-   - "explanation": 100–150 words. A deeper but still simple Hinglish explanation of the 1–2 most important concepts in this chapter — specifically the ones that appeared most in the papers. Write like a teacher doing a last-minute revision session: direct, clear, exam-focused. No introductory fluff like "In this chapter...".
-   For Low priority chapters, omit the study_content field entirely.
-
-5. Tone: casual, friendly Hinglish (Roman-script Hindi+English mix). Sound like a helpful senior batchmate, not a textbook. Encouraging but honest about what matters and what doesn't.
-   - School category: very simple language, extra encouragement.
-   - College category: mature, exam-strategy focused.
-
-6. Output ONLY valid JSON in the exact schema below. No markdown, no extra text outside the JSON.`;
+  const yearsList = params.yearLabels.join(", ");
 
   const userPrompt = `Category: ${params.category}
 Class/Course: ${params.classOrCourse || "Not specified"}
 Board/University: ${params.boardOrUniversity || "Not specified"}
 Subject: ${params.subject}
-Number of years provided: ${params.yearCount}
+Years provided: ${yearsList}
 
-Previous year paper content (combined from all years — read every line carefully before writing notes):
-${params.extractedText.substring(0, 20000)}
+Previous year paper content (combined, labeled by year):
+${params.extractedText.substring(0, 22000)}
 
-Now produce the analysis. Remember:
-- List every chapter/unit found in the papers.
-- For EVERY chapter (High, Medium, AND Low priority), write a study_note. Low priority gets 2-3 sentences. High/Medium get 100-150 words with exactly three labeled sections starting with "Kya padhna hai:", "Kaise poochha jaata hai:", and "Repeat pattern:" — no (a)/(b)/(c) numbers anywhere in the text.
-- For High/Medium chapters, key_terms must be 3–5 short phrases extracted directly from the paper text (theory names, formulas, specific case types). For Low chapters, key_terms = [].
-- For High/Medium chapters, include study_content with definition (2-3 sentences), key_points (4-6 bullets), and explanation (100-150 words). For Low chapters, omit study_content.
-- frequency = total number of times questions from that chapter appeared across ALL provided years.
-- marks_weightage = typical marks allocated per question for this chapter (e.g. "10 marks", "2x5 marks", "Not visible").
-- priority: "High" if appeared in 3+ years or carries ≥20 marks; "Medium" if appeared in 1-2 years or 10-15 marks; "Low" if appeared rarely or for very few marks.
+Perform a deep analysis and return JSON in this exact format:
 
-Return ONLY this JSON, no other text:
 {
   "subject": "string",
-  "category": "school | college",
-  "years_analyzed": number,
+  "years_analyzed": ${JSON.stringify(params.yearLabels)},
   "chapters": [
     {
       "chapter_name": "string",
-      "frequency": number,
-      "marks_weightage": "string",
-      "priority": "High | Medium | Low",
-      "study_note": "string — REQUIRED for every chapter, no exceptions",
-      "key_terms": ["string", "string", "string"],
-      "study_content": {
-        "definition": "2-3 sentence Hinglish overview of the chapter's core concept (High/Medium only)",
-        "key_points": ["4-6 short bullet strings, each 1-2 lines, based on what appeared in the papers"],
-        "explanation": "100-150 word Hinglish explanation of the most important concept(s) from the papers"
-      }
+      "overall_priority": "High | Medium | Low",
+      "total_frequency": number,
+      "years_appeared": ["Paper 1", "Paper 2"],
+      "confidence_level": "High | Medium | Low",
+      "marks_weightage": "string (e.g. '15-20 marks')",
+      "question_type_breakdown": {
+        "mcq": "count or percentage or 'None'",
+        "short_answer": "count or percentage or 'None'",
+        "long_answer": "count or percentage or 'None'",
+        "numerical_or_case_study": "count or percentage or 'None'"
+      },
+      "sub_topics": [
+        {
+          "sub_topic_name": "string",
+          "frequency": number,
+          "years_appeared": ["Paper 1"],
+          "note": "short Hinglish note — what exactly to know and how it's typically asked"
+        }
+      ],
+      "study_note": {
+        "kya_padhna_hai": "Hinglish — list the specific sub-topics, theories, named concepts, formulas, or case types that actually appeared in the papers",
+        "kaise_poochha_jaata_hai": "Hinglish — describe the exact question format seen across these papers",
+        "repeat_pattern": "Hinglish — if same or similar question appeared in multiple years, call it out explicitly"
+      },
+      "key_terms": ["term1", "term2", "term3"]
     }
   ],
-  "overall_strategy_tip": "string — one Hinglish paragraph with the single most important exam strategy for this subject based on what you saw in the papers"
+  "cross_chapter_patterns": [
+    "Hinglish string describing any chapters frequently combined in one question"
+  ],
+  "overall_strategy_tip": "Hinglish one-paragraph exam strategy based on what you saw in the papers"
 }
-NOTE: study_content must be present for every High and Medium priority chapter. For Low priority chapters, omit the study_content key entirely.`;
+
+Rules for this response:
+- overall_priority: "High" if appeared in 3+ years or carries ≥20 marks; "Medium" if 1-2 years or 10-15 marks; "Low" if rarely appears or very few marks.
+- confidence_level: "High" if pattern is very consistent (3+ years, same format); "Medium" if somewhat consistent; "Low" if only once or inconsistent.
+- sub_topics: at least 2-4 per High/Medium chapter. Identify ACTUAL sub-topics from the paper text, not generic chapter sections.
+- study_note: all 3 fields required for every chapter. For Low priority, keep kya_padhna_hai very brief (1-2 lines).
+- cross_chapter_patterns: only include if genuinely observed — empty array [] is fine if none found.
+- Return ONLY valid JSON, no other text.`;
 
   const makeRequest = async () => {
     const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 10000,
+      max_tokens: 12000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -151,7 +164,6 @@ NOTE: study_content must be present for every High and Medium priority chapter. 
   try {
     parsed = JSON.parse(content) as AiAnalysisResult;
   } catch {
-    // Retry once if JSON parse fails
     logger.warn("Failed to parse AI response JSON, retrying");
     const retryResponse = await makeRequest();
     const retryContent = retryResponse.choices[0]?.message?.content;
@@ -162,6 +174,11 @@ NOTE: study_content must be present for every High and Medium priority chapter. 
   // Validate required fields
   if (!parsed.subject || !parsed.chapters || !Array.isArray(parsed.chapters)) {
     throw new Error("Invalid AI response schema");
+  }
+
+  // Ensure years_analyzed is always an array
+  if (!Array.isArray(parsed.years_analyzed)) {
+    parsed.years_analyzed = params.yearLabels;
   }
 
   return {

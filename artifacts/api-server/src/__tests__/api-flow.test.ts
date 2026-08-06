@@ -159,17 +159,40 @@ vi.mock("../middlewares/clerkProxyMiddleware", () => ({
 vi.mock("../lib/openai", () => ({
   analyzeWithAI: vi.fn().mockResolvedValue({
     result: {
+      subject: "Physics",
+      years_analyzed: ["Paper 1"],
       chapters: [
         {
           chapter_name: "Mechanics",
-          priority: "high",
-          marks_weightage: 20,
-          frequency: 5,
-          study_note: "Very important",
+          overall_priority: "High",
+          total_frequency: 5,
+          years_appeared: ["Paper 1"],
+          confidence_level: "High",
+          marks_weightage: "20 marks",
+          question_type_breakdown: {
+            mcq: "None",
+            short_answer: "None",
+            long_answer: "5×",
+            numerical_or_case_study: "None",
+          },
+          sub_topics: [
+            {
+              sub_topic_name: "Newton's Laws",
+              frequency: 3,
+              years_appeared: ["Paper 1"],
+              note: "Laws of motion pe long answer aata hai",
+            },
+          ],
+          study_note: {
+            kya_padhna_hai: "Newton's Laws aur equations of motion",
+            kaise_poochha_jaata_hai: "Long answer 10-15 marks ka",
+            repeat_pattern: "Har saal aata hai",
+          },
+          key_terms: ["Newton's Laws", "Equations of Motion"],
         },
       ],
+      cross_chapter_patterns: [],
       overall_strategy_tip: "Start with Mechanics",
-      years_analyzed: 1,
     },
     inputTokens: 100,
     outputTokens: 200,
@@ -188,6 +211,10 @@ vi.mock("../lib/extractText", () => ({
   extractTextFromFiles: vi
     .fn()
     .mockResolvedValue("Question 1: Describe Newton's laws (10 marks)"),
+  extractTextFromFilesWithLabels: vi.fn().mockResolvedValue({
+    text: "--- Year: Paper 1 ---\n\nQuestion 1: Describe Newton's laws (10 marks)",
+    yearLabels: ["Paper 1"],
+  }),
 }));
 
 // ---------------------------------------------------------------------------

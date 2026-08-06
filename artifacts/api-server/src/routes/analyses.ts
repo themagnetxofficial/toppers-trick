@@ -8,7 +8,7 @@ import {
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { analyzeWithAI } from "../lib/openai";
-import { extractTextFromFiles } from "../lib/extractText";
+import { extractTextFromFilesWithLabels } from "../lib/extractText";
 import { generateStudyGuidePdf, getPdfOutputDir, getUploadsDir } from "../lib/pdfService";
 import {
   CreateAnalysisBody,
@@ -153,8 +153,9 @@ async function processAnalysis(
 ) {
   let creditRefunded = false;
   try {
-    // Extract text from all files
-    const extractedText = await extractTextFromFiles(params.filePaths);
+    // Extract text from each file with year labels so the AI can track
+    // which questions appeared in which paper.
+    const { text: extractedText, yearLabels } = await extractTextFromFilesWithLabels(params.filePaths);
 
     if (!extractedText || extractedText.length < 50) {
       throw new Error(
@@ -168,7 +169,7 @@ async function processAnalysis(
       classOrCourse: params.classOrCourse,
       boardOrUniversity: params.boardOrUniversity,
       subject: params.subject,
-      yearCount: params.filePaths.length,
+      yearLabels,
       extractedText,
     });
 

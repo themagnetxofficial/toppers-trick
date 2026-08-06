@@ -116,3 +116,21 @@ export async function extractTextFromFiles(filePaths: string[]): Promise<string>
   const texts = await Promise.all(filePaths.map((fp) => extractTextFromFile(fp)));
   return texts.filter(Boolean).join("\n\n---\n\n");
 }
+
+/**
+ * Extract text from each file separately, then combine with year labels so
+ * the AI can track which questions appeared in which paper.
+ */
+export async function extractTextFromFilesWithLabels(
+  filePaths: string[]
+): Promise<{ text: string; yearLabels: string[] }> {
+  const texts = await Promise.all(filePaths.map((fp) => extractTextFromFile(fp)));
+  const yearLabels = filePaths.map((_, i) => `Paper ${i + 1}`);
+  const labeled = texts.map(
+    (t, i) => `--- Year: Paper ${i + 1} ---\n\n${t.trim() || "(No text extracted from this file)"}`
+  );
+  return {
+    text: labeled.join("\n\n"),
+    yearLabels,
+  };
+}
