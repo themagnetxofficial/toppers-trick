@@ -200,53 +200,62 @@ function renderSummaryTable(
   rowY += 4;
 
   topics.forEach((tp, idx) => {
-    if (rowY > PAGE_H - BOTTOM_MARGIN) {
+    // Dynamically compute row height so long topic names don't overflow
+    const nameWidth = cols[0].w - 8;
+    const nameH = estimateTextHeight(doc, tp.topic_name || "—", 9, nameWidth);
+    const rowH = Math.max(20, nameH + 8);
+
+    if (rowY + rowH > PAGE_H - BOTTOM_MARGIN) {
       doc.addPage();
       rowY = MARGIN;
     }
 
     if (idx % 2 === 1) {
-      doc.save().rect(MARGIN, rowY - 2, CONTENT_W, 18).fill("#FAFAFA").restore();
+      doc.save().rect(MARGIN, rowY - 2, CONTENT_W, rowH).fill("#FAFAFA").restore();
     }
 
     const priority = tp.priority ?? (tp as any).overall_priority ?? "Low";
     const confidence = tp.confidence_level ?? "Medium";
     const pColor = PRIORITY_COLORS[priority] ?? "#374151";
 
-    // Topic name
+    // Topic name — allow wrapping, vertically centred in the row
+    const nameY = rowY + (rowH - nameH) / 2;
     doc.fontSize(9).fillColor("#111827").font("Helvetica")
-      .text(tp.topic_name || "—", cols[0].x + 4, rowY, { width: cols[0].w - 8 });
+      .text(tp.topic_name || "—", cols[0].x + 4, nameY, { width: nameWidth, lineBreak: true });
+
+    // Pill vertical centre
+    const pillMidY = rowY + rowH / 2 - 7.5;
 
     // Priority pill
     const pillW = 55;
     const pillX = cols[1].x + (cols[1].w - pillW) / 2;
     doc.save()
-      .roundedRect(pillX, rowY - 2, pillW, 15, 3)
+      .roundedRect(pillX, pillMidY, pillW, 15, 3)
       .fill(PRIORITY_HL[priority] ?? "#E5E7EB")
       .restore();
     doc.fontSize(8).fillColor(pColor).font("Kalam-Bold")
-      .text(priority, pillX, rowY + 1, { width: pillW, align: "center" });
+      .text(priority, pillX, pillMidY + 2, { width: pillW, align: "center", lineBreak: false });
 
     // Confidence pill
     const confW = 58;
     const confX = cols[2].x + (cols[2].w - confW) / 2;
     doc.save()
-      .roundedRect(confX, rowY - 2, confW, 15, 3)
+      .roundedRect(confX, pillMidY, confW, 15, 3)
       .fill(CONFIDENCE_HL[confidence] ?? "#E5E7EB")
       .restore();
     doc.fontSize(8).fillColor(CONFIDENCE_TEXT[confidence] ?? "#374151").font("Kalam-Bold")
-      .text(confidence, confX, rowY + 1, { width: confW, align: "center" });
+      .text(confidence, confX, pillMidY + 2, { width: confW, align: "center", lineBreak: false });
 
     // Frequency
     const freq = tp.frequency ?? (tp as any).total_frequency ?? 0;
     doc.fontSize(9).fillColor("#374151").font("Helvetica")
-      .text(`${freq}×`, cols[3].x + 4, rowY, { width: cols[3].w - 4, align: "center" });
+      .text(`${freq}×`, cols[3].x + 4, nameY, { width: cols[3].w - 4, align: "center", lineBreak: false });
 
     // Marks
     doc.fontSize(9).fillColor("#374151").font("Helvetica")
-      .text(tp.marks_weightage ?? "—", cols[4].x + 4, rowY, { width: cols[4].w - 4 });
+      .text(tp.marks_weightage ?? "—", cols[4].x + 4, nameY, { width: cols[4].w - 4, lineBreak: false });
 
-    rowY += 18;
+    rowY += rowH;
   });
 
   doc.save().moveTo(MARGIN, rowY).lineTo(PAGE_W - MARGIN, rowY)
@@ -273,13 +282,15 @@ function renderTopicNote(
   // Left accent bar
   doc.save().rect(MARGIN, startY, 4, 16).fill(pColor).restore();
 
-  // Topic heading
+  // Topic heading — may wrap to multiple lines
   doc.fontSize(14).fillColor("#111827").font("Kalam-Bold")
     .text(`${index + 1}. ${topic.topic_name}`, MARGIN + 12, startY, {
       width: CONTENT_W - 200,
     });
+  // Capture where the heading ended BEFORE badges reset doc.y
+  const headingBottom = doc.y;
 
-  // Priority pill
+  // Priority pill (positioned at top-right, independent of heading height)
   const pillY = startY + 1;
   const pillW = 80;
   const pillX = PAGE_W - MARGIN - pillW;
@@ -288,7 +299,9 @@ function renderTopicNote(
     .fill(PRIORITY_HL[priority] ?? "#E5E7EB")
     .restore();
   doc.fontSize(8.5).fillColor(pColor).font("Kalam-Bold")
-    .text(`${priority} Priority`, pillX, pillY + 3, { width: pillW, align: "center" });
+    .text(`${priority} Priority`, pillX, pillY + 3, {
+      width: pillW, align: "center", lineBreak: false,
+    });
 
   // Confidence badge
   const confW = 80;
@@ -298,9 +311,17 @@ function renderTopicNote(
     .fill(CONFIDENCE_HL[confidence] ?? "#E5E7EB")
     .restore();
   doc.fontSize(8.5).fillColor(CONFIDENCE_TEXT[confidence] ?? "#374151").font("Kalam-Bold")
-    .text(`${confidence} Conf.`, confX, pillY + 3, { width: confW, align: "center" });
+    .text(`${confidence} Conf.`, confX, pillY + 3, {
+      width: confW, align: "center", lineBreak: false,
+    });
 
-  doc.moveDown(0.5);
+  // The badge text() calls reset doc.y to ~badge bottom (startY + ~16).
+  // If the heading wrapped to multiple lines, headingBottom > doc.y —
+  // advance the cursor past the full heading before continuing.
+  if (headingBottom > doc.y) {
+    doc.text("", MARGIN, headingBottom);
+  }
+  doc.moveDown(0.4);
   resetX(doc);
 
   // Years appeared + frequency inline
