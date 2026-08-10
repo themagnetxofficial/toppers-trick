@@ -129,16 +129,21 @@ export const DownloadAnalysisPdfResponse = zod.object({
 /**
  * @summary Create a Razorpay order for credit pack
  */
+export const CreatePaymentOrderBody = zod.object({
+  "packageId": zod.enum(["starter", "value"])
+})
+
 export const CreatePaymentOrderResponse = zod.object({
   "orderId": zod.string(),
   "amount": zod.number(),
   "currency": zod.string(),
-  "key": zod.string()
+  "key": zod.string(),
+  "credits": zod.number()
 })
 
 
 /**
- * @summary Verify Razorpay payment and add 10 credits
+ * @summary Verify Razorpay payment and add credits
  */
 export const VerifyPaymentBody = zod.object({
   "razorpayOrderId": zod.string(),

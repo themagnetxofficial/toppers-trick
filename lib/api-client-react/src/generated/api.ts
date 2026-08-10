@@ -25,6 +25,7 @@ import type {
   AnalysisSummary,
   CreditBalance,
   HealthStatus,
+  PackageOrderInput,
   Payment,
   PaymentOrder,
   PaymentVerification,
@@ -681,24 +682,23 @@ export const getCreatePaymentOrderUrl = () => {
 /**
  * @summary Create a Razorpay order for credit pack
  */
-export const createPaymentOrder = async ( options?: Parameters<typeof customFetch>[1]): Promise<PaymentOrder> => {
+export const createPaymentOrder = async (packageOrderInput: PackageOrderInput, options?: Parameters<typeof customFetch>[1]): Promise<PaymentOrder> => {
 
   return customFetch<PaymentOrder>(getCreatePaymentOrderUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(packageOrderInput)
   }
 );}
 
 
 
 
-
 export const getCreatePaymentOrderMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentOrder>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createPaymentOrder>>, TError,void, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentOrder>>, TError,{data: BodyType<PackageOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPaymentOrder>>, TError,{data: BodyType<PackageOrderInput>}, TContext> => {
 
 const mutationKey = ['createPaymentOrder'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -710,13 +710,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPaymentOrder>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPaymentOrder>>, {data: BodyType<PackageOrderInput>}> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  createPaymentOrder(requestOptions)
+          return  createPaymentOrder(data, requestOptions)
         }
-
-
 
 
 
@@ -724,18 +722,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type CreatePaymentOrderMutationResult = NonNullable<Awaited<ReturnType<typeof createPaymentOrder>>>
-
+    export type CreatePaymentOrderMutationBody = BodyType<PackageOrderInput>
     export type CreatePaymentOrderMutationError = ErrorType<void>
 
     /**
  * @summary Create a Razorpay order for credit pack
  */
 export const useCreatePaymentOrder = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentOrder>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPaymentOrder>>, TError,{data: BodyType<PackageOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createPaymentOrder>>,
         TError,
-        void,
+        {data: BodyType<PackageOrderInput>},
         TContext
       > => {
       return useMutation(getCreatePaymentOrderMutationOptions(options));

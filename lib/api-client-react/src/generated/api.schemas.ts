@@ -147,11 +147,18 @@ export interface PdfDownload {
   url: string;
 }
 
+export type PackageId = 'starter' | 'value';
+
+export interface PackageOrderInput {
+  packageId: PackageId;
+}
+
 export interface PaymentOrder {
   orderId: string;
   amount: number;
   currency: string;
   key: string;
+  credits: number;
 }
 
 export interface PaymentVerification {

@@ -4,6 +4,7 @@ import { db, paymentsTable, creditsTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { createHmac } from "crypto";
 import {
+  CreatePaymentOrderBody,
   CreatePaymentOrderResponse,
   VerifyPaymentBody,
   VerifyPaymentResponse,
@@ -13,9 +14,21 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-// ₹129 pack = 12900 paise
-const PACK_AMOUNT_PAISE = 12900;
-const CREDITS_PER_PACK = 10;
+// Available credit packages
+const PACKAGES = {
+  starter: { amountPaise: 6900,  credits: 5,  label: "Starter Pack — 5 Analyses" },
+  value:   { amountPaise: 12900, credits: 10, label: "Value Pack — 10 Analyses"  },
+} as const;
+
+type PackageId = keyof typeof PACKAGES;
+
+/** Derive credits from a stored amount (paise). Defaults to 10 for legacy records. */
+function creditsForAmount(amountPaise: number): number {
+  for (const pkg of Object.values(PACKAGES)) {
+    if (pkg.amountPaise === amountPaise) return pkg.credits;
+  }
+  return 10; // fallback for pre-existing ₹129 records
+}
 
 async function getRazorpay() {
   const Razorpay = (await import("razorpay")).default;
@@ -34,10 +47,19 @@ router.post(
       return;
     }
 
+    const parsed = CreatePaymentOrderBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const packageId = parsed.data.packageId as PackageId;
+    const pkg = PACKAGES[packageId];
+
     try {
       const razorpay = await getRazorpay();
       const order = await razorpay.orders.create({
-        amount: PACK_AMOUNT_PAISE,
+        amount: pkg.amountPaise,
         currency: "INR",
         receipt: `order_user_${req.userId}_${Date.now()}`,
       });
@@ -45,7 +67,7 @@ router.post(
       // Log pending payment
       await db.insert(paymentsTable).values({
         userId: req.userId!,
-        amount: PACK_AMOUNT_PAISE,
+        amount: pkg.amountPaise,
         razorpayOrderId: order.id as string,
         status: "pending",
       });
@@ -53,9 +75,10 @@ router.post(
       res.status(201).json(
         CreatePaymentOrderResponse.parse({
           orderId: order.id,
-          amount: PACK_AMOUNT_PAISE,
+          amount: pkg.amountPaise,
           currency: "INR",
           key: process.env.RAZORPAY_KEY_ID,
+          credits: pkg.credits,
         })
       );
     } catch (err) {
@@ -90,6 +113,16 @@ router.post(
       return;
     }
 
+    // Look up the pending payment to determine how many credits to award
+    const paymentRow = await db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.razorpayOrderId, razorpayOrderId))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    const creditsToAward = creditsForAmount(paymentRow?.amount ?? 12900);
+
     // Update payment record
     await db
       .update(paymentsTable)
@@ -104,8 +137,8 @@ router.post(
       .limit(1)
       .then((rows) => rows[0]);
 
-    const newCredits = (credits?.creditsRemaining ?? 0) + CREDITS_PER_PACK;
-    const newTotal = (credits?.totalPurchased ?? 0) + CREDITS_PER_PACK;
+    const newCredits = (credits?.creditsRemaining ?? 0) + creditsToAward;
+    const newTotal = (credits?.totalPurchased ?? 0) + creditsToAward;
 
     if (credits) {
       await db
@@ -119,13 +152,13 @@ router.post(
     } else {
       await db.insert(creditsTable).values({
         userId: req.userId!,
-        creditsRemaining: CREDITS_PER_PACK,
-        totalPurchased: CREDITS_PER_PACK,
+        creditsRemaining: creditsToAward,
+        totalPurchased: creditsToAward,
       });
     }
 
     logger.info(
-      { userId: req.userId, razorpayPaymentId },
+      { userId: req.userId, razorpayPaymentId, creditsToAward },
       "Payment verified, credits added"
     );
 
