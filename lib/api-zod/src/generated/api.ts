@@ -31,10 +31,18 @@ export const GetMeResponse = zod.object({
 /**
  * @summary Get user's credit balance
  */
+export const CreditBatchItem = zod.object({
+  "credits": zod.number(),
+  "isPaid": zod.boolean(),
+  "expiresAt": zod.coerce.date().nullable()
+})
+
 export const GetMyCreditsResponse = zod.object({
   "creditsRemaining": zod.number(),
   "totalPurchased": zod.number(),
-  "freeCreditUsed": zod.boolean().optional()
+  "freeCreditUsed": zod.boolean().optional(),
+  "nextExpiresAt": zod.coerce.date().nullable().optional(),
+  "batches": zod.array(CreditBatchItem).optional()
 })
 
 

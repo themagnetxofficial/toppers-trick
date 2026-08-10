@@ -45,6 +45,17 @@ export const paymentsTable = pgTable("payments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const creditBatchesTable = pgTable("credit_batches", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  creditsTotal: integer("credits_total").notNull(),
+  creditsRemaining: integer("credits_remaining").notNull(),
+  isPaid: boolean("is_paid").notNull().default(false),
+  purchasedAt: timestamp("purchased_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }), // NULL = never expires (free credits)
+  paymentId: integer("payment_id"), // optional FK to payments.id
+});
+
 export const tokenUsageLogsTable = pgTable("token_usage_logs", {
   id: serial("id").primaryKey(),
   analysisId: integer("analysis_id").notNull().references(() => analysesTable.id),

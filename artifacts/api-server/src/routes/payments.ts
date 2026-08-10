@@ -1,6 +1,6 @@
 import { Router, IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, paymentsTable, creditsTable } from "@workspace/db";
+import { db, paymentsTable, creditBatchesTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { createHmac } from "crypto";
 import {
@@ -10,6 +10,7 @@ import {
   VerifyPaymentResponse,
   ListPaymentsResponse,
 } from "@workspace/api-zod";
+import { getCreditInfo } from "../lib/credits";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -123,50 +124,40 @@ router.post(
 
     const creditsToAward = creditsForAmount(paymentRow?.amount ?? 12900);
 
-    // Update payment record
+    // Mark payment as successful
     await db
       .update(paymentsTable)
       .set({ razorpayPaymentId, status: "success" })
       .where(eq(paymentsTable.razorpayOrderId, razorpayOrderId));
 
-    // Add credits
-    const credits = await db
-      .select()
-      .from(creditsTable)
-      .where(eq(creditsTable.userId, req.userId!))
-      .limit(1)
-      .then((rows) => rows[0]);
+    // Create a 30-day expiring credit batch for this purchase
+    const purchasedAt = new Date();
+    const expiresAt = new Date(purchasedAt);
+    expiresAt.setDate(expiresAt.getDate() + 30);
 
-    const newCredits = (credits?.creditsRemaining ?? 0) + creditsToAward;
-    const newTotal = (credits?.totalPurchased ?? 0) + creditsToAward;
+    await db.insert(creditBatchesTable).values({
+      userId: req.userId!,
+      creditsTotal: creditsToAward,
+      creditsRemaining: creditsToAward,
+      isPaid: true,
+      purchasedAt,
+      expiresAt,
+      paymentId: paymentRow?.id ?? null,
+    });
 
-    if (credits) {
-      await db
-        .update(creditsTable)
-        .set({
-          creditsRemaining: newCredits,
-          totalPurchased: newTotal,
-          updatedAt: new Date(),
-        })
-        .where(eq(creditsTable.userId, req.userId!));
-    } else {
-      await db.insert(creditsTable).values({
-        userId: req.userId!,
-        creditsRemaining: creditsToAward,
-        totalPurchased: creditsToAward,
-      });
-    }
+    // Fetch updated credit info for the response
+    const creditInfo = await getCreditInfo(req.userId!);
 
     logger.info(
-      { userId: req.userId, razorpayPaymentId, creditsToAward },
-      "Payment verified, credits added"
+      { userId: req.userId, razorpayPaymentId, creditsToAward, expiresAt },
+      "Payment verified, credits batch created"
     );
 
     res.json(
       VerifyPaymentResponse.parse({
-        creditsRemaining: newCredits,
-        totalPurchased: newTotal,
-        freeCreditUsed: credits?.freeCreditUsed ?? false,
+        creditsRemaining: creditInfo.creditsRemaining,
+        totalPurchased: creditInfo.totalPurchased,
+        freeCreditUsed: false,
       })
     );
   }

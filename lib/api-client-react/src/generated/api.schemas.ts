@@ -19,10 +19,19 @@ export interface UserProfile {
   createdAt: string;
 }
 
+export interface CreditBatchItem {
+  credits: number;
+  isPaid: boolean;
+  expiresAt: string | null;
+}
+
 export interface CreditBalance {
   creditsRemaining: number;
   totalPurchased: number;
   freeCreditUsed?: boolean;
+  /** ISO date string of the soonest expiring paid batch, null if only free credits */
+  nextExpiresAt?: string | null;
+  batches?: CreditBatchItem[];
 }
 
 export interface UserStats {

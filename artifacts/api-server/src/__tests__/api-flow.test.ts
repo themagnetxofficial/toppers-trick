@@ -61,6 +61,7 @@ const { dbState, uploadsDir } = vi.hoisted(() => {
 vi.mock("@workspace/db", () => {
   const analysesTable = { _tag: "analysesTable" } as unknown;
   const creditsTable = { _tag: "creditsTable" } as unknown;
+  const creditBatchesTable = { _tag: "creditBatchesTable" } as unknown;
   const usersTable = { _tag: "usersTable" } as unknown;
   const tokenUsageLogsTable = { _tag: "tokenUsageLogsTable" } as unknown;
 
@@ -96,6 +97,14 @@ vi.mock("@workspace/db", () => {
           rows = dbState.user ? [dbState.user] : [];
         else if (table === creditsTable)
           rows = dbState.credits ? [dbState.credits] : [];
+        else if (table === creditBatchesTable) {
+          // Return a single non-expiring free batch mirroring dbState.credits
+          const rem = dbState.credits?.creditsRemaining ?? 0;
+          rows = rem > 0
+            ? [{ id: 1, userId: 1, creditsTotal: rem, creditsRemaining: rem,
+                 isPaid: false, purchasedAt: new Date(), expiresAt: null }]
+            : [];
+        }
         else if (table === analysesTable)
           rows = dbState.analysis ? [dbState.analysis] : [];
         else rows = [];
@@ -121,14 +130,28 @@ vi.mock("@workspace/db", () => {
       let returning: unknown[] = [];
       if (table === analysesTable) returning = [dbState.insertedAnalysis];
       else if (table === usersTable) returning = [dbState.user];
-      // credits insert and tokenUsage insert resolve empty
+      // creditBatches, credits, tokenUsage inserts resolve empty
       return makeChain(returning);
     }),
 
     update: vi.fn().mockImplementation(() => makeChain([])),
+
+    /**
+     * execute is used by the credit helper functions:
+     *   getAvailableCredits  → reads rows[0].total
+     *   deductOneCredit      → reads rows[0].id (present = success, absent = null)
+     *   refundOneCredit      → reads rows[0].id (present = updated, absent = insert fallback)
+     *
+     * Default: succeed when credits > 0; return total=0 otherwise.
+     * Individual tests can call vi.mocked(db.execute).mockResolvedValueOnce() to override.
+     */
+    execute: vi.fn().mockImplementation(async () => {
+      const available = dbState.credits?.creditsRemaining ?? 0;
+      return { rows: [{ total: available, id: 1 }] };
+    }),
   };
 
-  return { db, analysesTable, creditsTable, usersTable, tokenUsageLogsTable };
+  return { db, analysesTable, creditsTable, creditBatchesTable, usersTable, tokenUsageLogsTable };
 });
 
 // Bypass Clerk auth — make every request appear as userId = 1
@@ -519,10 +542,9 @@ describe("POST /api/analyses/:id/retry", () => {
     vi.mocked(db.update)
       .mockImplementationOnce(() =>                        // 1st: claim the retry slot
         makeUpdateChain([{ ...failedAnalysis, status: "processing", errorMessage: null }])
-      )
-      .mockImplementationOnce(() =>                        // 2nd: atomic credit decrement
-        makeUpdateChain([{ ...dbState.credits, creditsRemaining: 1 }])
       );
+    // Credit deduction now goes through db.execute (not db.update).
+    // Default execute mock returns { rows: [{ total: 2, id: 1 }] } → deduction succeeds.
 
     const res = await request(app).post("/api/analyses/42/retry");
     expect(res.status).toBe(200);
@@ -566,6 +588,7 @@ describe("POST /api/analyses/:id/retry", () => {
     // Status transition returns 0 rows → concurrent retry already won the slot.
     // The endpoint must return 409 immediately WITHOUT touching credits.
     vi.mocked(db.update).mockClear();
+    vi.mocked(db.execute).mockClear();
     vi.mocked(db.update)
       .mockImplementationOnce(() => makeUpdateChain([])); // status transition: race lost
 
@@ -610,17 +633,23 @@ describe("POST /api/analyses/:id/retry", () => {
     };
 
     vi.mocked(db.update).mockClear();
+    vi.mocked(db.execute).mockClear();
     vi.mocked(db.update)
       .mockImplementationOnce(() =>                        // 1st: status transition succeeds
         makeUpdateChain([{ ...failedAnalysis, status: "processing", errorMessage: null }])
       )
-      .mockImplementationOnce(() => makeUpdateChain([]))   // 2nd: credit decrement returns 0 rows (drained)
-      .mockImplementationOnce(() => makeUpdateChain([]));  // 3rd: revert status to failed
+      .mockImplementationOnce(() => makeUpdateChain([]));  // 2nd: revert status to failed
+
+    // Make execute return success for getAvailableCredits (pre-check passes)
+    // then return empty rows for deductOneCredit (race: credits drained).
+    vi.mocked(db.execute)
+      .mockResolvedValueOnce({ rows: [{ total: 2, id: 1 }] } as any)  // getAvailableCredits → 2
+      .mockResolvedValueOnce({ rows: [] } as any);                      // deductOneCredit → null
 
     const res = await request(app).post("/api/analyses/42/retry");
     expect(res.status).toBe(402);
-    // Status revert must have been called — 3 db.update calls total
-    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(3);
+    // Status transition + status revert — credit deduction is now via db.execute, not db.update
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(2);
   });
 });
 

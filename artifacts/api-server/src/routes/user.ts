@@ -1,7 +1,8 @@
 import { Router, IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, usersTable, creditsTable, analysesTable } from "@workspace/db";
+import { db, usersTable, analysesTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
+import { getCreditInfo } from "../lib/credits";
 import { GetMeResponse, GetMyCreditsResponse, GetMyStatsResponse } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -29,54 +30,41 @@ router.get("/me", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.get("/me/credits", requireAuth, async (req, res): Promise<void> => {
-  const credits = await db
-    .select()
-    .from(creditsTable)
-    .where(eq(creditsTable.userId, req.userId!))
-    .limit(1)
-    .then((rows) => rows[0]);
-
-  if (!credits) {
-    res.json(GetMyCreditsResponse.parse({
-      creditsRemaining: 0,
-      totalPurchased: 0,
-      freeCreditUsed: false,
-    }));
-    return;
-  }
+  const info = await getCreditInfo(req.userId!);
 
   res.json(GetMyCreditsResponse.parse({
-    creditsRemaining: credits.creditsRemaining,
-    totalPurchased: credits.totalPurchased,
-    freeCreditUsed: credits.freeCreditUsed,
+    creditsRemaining: info.creditsRemaining,
+    totalPurchased: info.totalPurchased,
+    freeCreditUsed: info.freeCreditUsed,
+    nextExpiresAt: info.nextExpiresAt ?? null,
+    batches: info.batches.map((b) => ({
+      credits: b.credits,
+      isPaid: b.isPaid,
+      expiresAt: b.expiresAt ?? null,
+    })),
   }));
 });
 
 router.get("/me/stats", requireAuth, async (req, res): Promise<void> => {
-  const [credits, analyses] = await Promise.all([
-    db
-      .select()
-      .from(creditsTable)
-      .where(eq(creditsTable.userId, req.userId!))
-      .limit(1)
-      .then((rows) => rows[0]),
+  const [creditInfo, analyses] = await Promise.all([
+    getCreditInfo(req.userId!),
     db
       .select()
       .from(analysesTable)
       .where(eq(analysesTable.userId, req.userId!)),
   ]);
 
-  const completedAnalyses = analyses.filter((a: typeof analyses[0]) => a.status === "completed");
-  const subjects = [...new Set(completedAnalyses.map((a: typeof analyses[0]) => a.subject))];
+  const completedAnalyses = analyses.filter((a) => a.status === "completed");
+  const subjects = [...new Set(completedAnalyses.map((a) => a.subject))];
   const creditsUsed = analyses.filter(
-    (a: typeof analyses[0]) => a.status === "completed" || a.status === "processing"
+    (a) => a.status === "completed" || a.status === "processing"
   ).length;
 
   res.json(GetMyStatsResponse.parse({
     totalAnalyses: completedAnalyses.length,
     creditsUsed,
     subjectsAnalyzed: subjects,
-    creditsRemaining: credits?.creditsRemaining ?? 0,
+    creditsRemaining: creditInfo.creditsRemaining,
   }));
 });
 

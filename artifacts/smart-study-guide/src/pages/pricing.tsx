@@ -155,7 +155,10 @@ export default function PricingPage() {
                 <>Buy 5 Credits for ₹69</>
               )}
             </Button>
-            <p className="text-center text-xs text-muted-foreground mt-3 flex items-center justify-center gap-1">
+            <p className="text-center text-xs text-amber-600 dark:text-amber-500 mt-2 font-medium">
+              Valid for 30 days from purchase
+            </p>
+            <p className="text-center text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
               <Shield className="w-3 h-3" /> Secure payment via Razorpay
             </p>
           </CardContent>
@@ -210,7 +213,10 @@ export default function PricingPage() {
                 <>Buy 10 Credits for ₹129</>
               )}
             </Button>
-            <p className="text-center text-xs text-muted-foreground mt-4 flex items-center justify-center gap-1">
+            <p className="text-center text-xs text-amber-600 dark:text-amber-500 mt-2 font-medium">
+              Valid for 30 days from purchase
+            </p>
+            <p className="text-center text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
               <Shield className="w-3 h-3" /> Secure payment via Razorpay
             </p>
           </CardContent>
@@ -232,7 +238,7 @@ export default function PricingPage() {
             <Coins className="w-5 h-5 text-primary" /> Do credits expire?
           </h3>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            No! Credits you purchase remain in your account forever. Buy them now for this semester, use leftovers next semester.
+            Purchased credits are valid for <strong>30 days</strong> from the date of payment. Your 2 free trial credits never expire.
           </p>
         </div>
       </div>

@@ -1,12 +1,12 @@
 import { Router, IRouter } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   db,
   analysesTable,
-  creditsTable,
   tokenUsageLogsTable,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
+import { getAvailableCredits, deductOneCredit, refundOneCredit } from "../lib/credits";
 import { analyzeWithAI } from "../lib/openai";
 import { extractTextFromFilesWithLabels } from "../lib/extractText";
 import { generateStudyGuidePdf, getPdfOutputDir, getUploadsDir } from "../lib/pdfService";
@@ -61,22 +61,14 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
   const { category, classOrCourse, boardOrUniversity, subject, filePaths } =
     parsed.data;
 
-  // Check credits
-  const credits = await db
-    .select()
-    .from(creditsTable)
-    .where(eq(creditsTable.userId, req.userId!))
-    .limit(1)
-    .then((rows) => rows[0]);
-
-  if (!credits || credits.creditsRemaining <= 0) {
+  // Pre-check: are any non-expired credits available?
+  const available = await getAvailableCredits(req.userId!);
+  if (available <= 0) {
     res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
     return;
   }
 
   // Validate file paths (security: ensure they're within uploads dir)
-  // Use getUploadsDir() — same source of truth as the upload route — so paths
-  // always match regardless of what process.cwd() resolves to at runtime.
   const UPLOADS_BASE = getUploadsDir();
   for (const fp of filePaths) {
     const resolved = path.resolve(fp);
@@ -90,11 +82,13 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  // Deduct 1 credit
-  await db
-    .update(creditsTable)
-    .set({ creditsRemaining: credits.creditsRemaining - 1 })
-    .where(eq(creditsTable.userId, req.userId!));
+  // Atomically deduct 1 credit from the oldest non-expired batch
+  const deducted = await deductOneCredit(req.userId!);
+  if (!deducted) {
+    // Race condition: credits drained between check and deduction
+    res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
+    return;
+  }
 
   // Create analysis record
   const [analysis] = await db
@@ -133,7 +127,6 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
     subject,
     filePaths,
     userId: req.userId!,
-    credits,
   }).catch((err) => {
     logger.error({ err, analysisId: analysis.id }, "Background analysis processing failed");
   });
@@ -148,13 +141,10 @@ async function processAnalysis(
     subject: string;
     filePaths: string[];
     userId: number;
-    credits: { creditsRemaining: number };
   }
 ) {
   let creditRefunded = false;
   try {
-    // Extract text from each file with year labels so the AI can track
-    // which questions appeared in which paper.
     const { text: extractedText, yearLabels } = await extractTextFromFilesWithLabels(params.filePaths);
 
     if (!extractedText || extractedText.length < 50) {
@@ -196,7 +186,7 @@ async function processAnalysis(
       aiResult: result,
     });
 
-    // Update analysis record as completed
+    // Mark as completed
     await db
       .update(analysesTable)
       .set({
@@ -220,21 +210,17 @@ async function processAnalysis(
   } catch (err) {
     logger.error({ err, analysisId }, "Analysis failed");
 
-    const errorMessage =
-      err instanceof Error ? err.message : "Analysis failed";
+    const errorMessage = err instanceof Error ? err.message : "Analysis failed";
 
     await db
       .update(analysesTable)
       .set({ status: "failed", errorMessage })
       .where(eq(analysesTable.id, analysisId));
 
-    // Atomically refund the credit (increment by 1 to avoid overwriting
-    // concurrent credit changes with a stale snapshot value).
+    // Atomically refund the credit to the oldest non-full non-expired batch
     if (!creditRefunded) {
-      await db
-        .update(creditsTable)
-        .set({ creditsRemaining: sql`${creditsTable.creditsRemaining} + 1` })
-        .where(eq(creditsTable.userId, params.userId));
+      await refundOneCredit(params.userId);
+      creditRefunded = true;
     }
   }
 }
@@ -270,8 +256,6 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
       subject: analysis.subject,
       yearsAnalyzed: analysis.yearsAnalyzed,
       status: analysis.status,
-      // Never leak raw internal error details to the client.
-      // If the analysis failed, return a generic user-facing message only.
       errorMessage:
         analysis.status === "failed"
           ? "Analysis could not be completed. Your credit has been refunded."
@@ -323,22 +307,15 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
     }
   }
 
-  // Lightweight pre-check so we surface a clear 402 before touching any data.
-  const credits = await db
-    .select()
-    .from(creditsTable)
-    .where(eq(creditsTable.userId, req.userId!))
-    .limit(1)
-    .then((rows) => rows[0]);
-
-  if (!credits || credits.creditsRemaining <= 0) {
+  // Lightweight pre-check: surface a clear 402 before touching any data
+  const available = await getAvailableCredits(req.userId!);
+  if (available <= 0) {
     res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
     return;
   }
 
   // ─── Step 1: atomically claim the retry slot ──────────────────────────────
-  // The WHERE clause requires status = 'failed', so only one concurrent
-  // request can win.  All others receive an empty RETURNING → 409.
+  // WHERE status = 'failed' ensures only one concurrent request can win.
   const claimed = await db
     .update(analysesTable)
     .set({ status: "processing", errorMessage: null })
@@ -358,25 +335,11 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
 
   const [updatedAnalysis] = claimed;
 
-  // ─── Step 2: atomically deduct 1 credit (SQL expression, no snapshot) ────
-  // Using a SQL-level decrement avoids the stale-read race: the DB computes
-  // the new value itself.  The `creditsRemaining > 0` guard ensures we never
-  // go below zero; an empty RETURNING means we were beaten by a concurrent
-  // operation that already drained the balance.
-  const deducted = await db
-    .update(creditsTable)
-    .set({ creditsRemaining: sql`${creditsTable.creditsRemaining} - 1` })
-    .where(
-      and(
-        eq(creditsTable.userId, req.userId!),
-        sql`${creditsTable.creditsRemaining} > 0`
-      )
-    )
-    .returning();
+  // ─── Step 2: atomically deduct 1 credit from oldest non-expired batch ─────
+  const deducted = await deductOneCredit(req.userId!);
 
-  if (!deducted.length) {
-    // Edge case: credits ran out between the pre-check and this write.
-    // Revert the status back to "failed" so the user can retry again later.
+  if (!deducted) {
+    // Edge case: credits expired/drained between the pre-check and this write.
     await db
       .update(analysesTable)
       .set({ status: "failed", errorMessage: "Insufficient credits." })
@@ -408,7 +371,6 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
     subject: analysis.subject,
     filePaths,
     userId: req.userId!,
-    credits,
   }).catch((err) => {
     logger.error({ err, analysisId: id }, "Background retry processing failed");
   });
@@ -456,7 +418,6 @@ router.get(
   async (req, res): Promise<void> => {
     const filename = req.params.filename as string;
 
-    // Security: only allow alphanumeric, dash, dot in filename
     if (!/^[\w\-]+\.pdf$/.test(filename)) {
       res.status(400).json({ error: "Invalid filename" });
       return;
@@ -470,10 +431,7 @@ router.get(
     }
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="study-guide.pdf"`
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="study-guide.pdf"`);
     fs.createReadStream(filePath).pipe(res);
   }
 );

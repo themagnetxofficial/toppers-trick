@@ -1,2 +1,3 @@
 - [Smart Study Guide architecture](smart-study-guide-arch.md) — full-stack overview: React/Clerk frontend, Express API, Drizzle/Postgres, key build quirks
 - [Test auth mocking patterns](test-auth-mocking.md) — vi.hoisted + vi.mock for Clerk/DB in vitest; vi.fn() required for mockReturnValueOnce; uploads path must match cwd/uploads; Zod schema gotchas for aiResponse
+- [Credit expiry architecture](credit-expiry-arch.md) — credit_batches table, FIFO deduction via raw SQL, test mock patterns for db.execute, migration SQL

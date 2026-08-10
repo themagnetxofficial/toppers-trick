@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { getAuth } from "@clerk/express";
-import { db, usersTable, creditsTable } from "@workspace/db";
+import { db, usersTable, creditsTable, creditBatchesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
@@ -45,12 +45,21 @@ export const requireAuth = async (
         .returning();
       user = newUser;
 
-      // Give 2 free credits
+      // Legacy credits row (kept for backward compatibility)
       await db.insert(creditsTable).values({
         userId: user.id,
         creditsRemaining: 2,
         totalPurchased: 0,
         freeCreditUsed: false,
+      });
+
+      // Free trial credits as a non-expiring batch
+      await db.insert(creditBatchesTable).values({
+        userId: user.id,
+        creditsTotal: 2,
+        creditsRemaining: 2,
+        isPaid: false,
+        expiresAt: null, // free credits never expire
       });
 
       logger.info({ userId: user.id }, "New user provisioned with 2 free credits");

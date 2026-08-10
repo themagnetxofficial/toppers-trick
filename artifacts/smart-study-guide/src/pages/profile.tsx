@@ -70,7 +70,14 @@ export default function ProfilePage() {
               {creditsLoading ? (
                 <Skeleton className="h-8 w-16 mx-auto" />
               ) : (
-                <div className="text-3xl font-bold text-foreground mb-3">{credits?.creditsRemaining || 0}</div>
+                <>
+                  <div className="text-3xl font-bold text-foreground mb-1">{credits?.creditsRemaining || 0}</div>
+                  {credits?.nextExpiresAt && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+                      Expires {format(new Date(credits.nextExpiresAt), 'dd MMM yyyy')}
+                    </p>
+                  )}
+                </>
               )}
               <Link href="/pricing" className="block w-full">
                 <Button variant="outline" size="sm" className="w-full font-semibold border-primary/20 hover:bg-primary/10 text-primary">
