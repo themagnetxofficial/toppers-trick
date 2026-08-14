@@ -30,7 +30,7 @@ const { dbState, uploadsDir } = vi.hoisted(() => {
     uploadsDir: tmpDir,
     dbState: {
       user: { id: 1, clerkUserId: "test_clerk_user_id" },
-      credits: { id: 1, userId: 1, creditsRemaining: 2 },
+      credits: { id: 1, userId: 1, creditsRemaining: 1 },
       /** Set per-test to control what GET /analyses/:id returns */
       analysis: null as Record<string, unknown> | null,
       /** Used by insert(analysesTable).returning() */

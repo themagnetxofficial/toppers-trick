@@ -182,7 +182,7 @@ export default function LandingPage() {
                     Get Started Now
                   </Button>
                 </Link>
-                <p className="text-center text-sm text-muted-foreground">You get 2 free analyses when you sign up.</p>
+                <p className="text-center text-sm text-muted-foreground">You get 1 free analysis when you sign up.</p>
               </div>
             </div>
           </div>

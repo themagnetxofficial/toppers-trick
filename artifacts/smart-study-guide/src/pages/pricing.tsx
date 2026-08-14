@@ -238,7 +238,7 @@ export default function PricingPage() {
             <Coins className="w-5 h-5 text-primary" /> Do credits expire?
           </h3>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Purchased credits are valid for <strong>30 days</strong> from the date of payment. Your 2 free trial credits never expire.
+            Purchased credits are valid for <strong>30 days</strong> from the date of payment. Your free trial credit never expires.
           </p>
         </div>
       </div>

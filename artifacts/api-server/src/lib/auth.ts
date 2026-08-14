@@ -48,7 +48,7 @@ export const requireAuth = async (
       // Legacy credits row (kept for backward compatibility)
       await db.insert(creditsTable).values({
         userId: user.id,
-        creditsRemaining: 2,
+        creditsRemaining: 1,
         totalPurchased: 0,
         freeCreditUsed: false,
       });
@@ -56,13 +56,13 @@ export const requireAuth = async (
       // Free trial credits as a non-expiring batch
       await db.insert(creditBatchesTable).values({
         userId: user.id,
-        creditsTotal: 2,
-        creditsRemaining: 2,
+        creditsTotal: 1,
+        creditsRemaining: 1,
         isPaid: false,
         expiresAt: null, // free credits never expire
       });
 
-      logger.info({ userId: user.id }, "New user provisioned with 2 free credits");
+      logger.info({ userId: user.id }, "New user provisioned with 1 free credit");
     }
 
     req.userId = user.id;
