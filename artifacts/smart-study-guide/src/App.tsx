@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { ClerkProvider, SignIn, SignUp, Show, useClerk } from '@clerk/react';
+import { ClerkProvider, SignIn, SignUp, Show, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from 'wouter';
@@ -14,6 +14,7 @@ import AnalysisResultPage from "./pages/analysis-result";
 import HistoryPage from "./pages/history";
 import PricingPage from "./pages/pricing";
 import ProfilePage from "./pages/profile";
+import OnboardingPage from "./pages/onboarding";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -66,7 +67,8 @@ const clerkAppearance = {
     footer: "!shadow-none !border-0 !bg-transparent !rounded-none",
     headerTitle: "text-2xl font-bold font-serif text-[#1C1815]",
     headerSubtitle: "text-[#665D55]",
-    socialButtonsBlockButtonText: "text-[#1C1815] font-medium",
+    socialButtonsBlockButton: "!border !border-[#C5BDB5] !bg-white hover:!bg-[#F5F0EB] !opacity-100 !filter-none !shadow-sm",
+    socialButtonsBlockButtonText: "!text-[#1C1815] font-medium",
     formFieldLabel: "text-[#1C1815] font-medium",
     footerActionLink: "text-[#F58F0A] hover:text-[#D47908] font-medium",
     footerActionText: "text-[#665D55]",
@@ -154,6 +156,7 @@ function ClerkProviderWithRoutes() {
       appearance={clerkAppearance}
       signInUrl={`${basePath}/sign-in`}
       signUpUrl={`${basePath}/sign-up`}
+      afterSignUpUrl={`${basePath}/onboarding`}
       routerPush={(to) => setLocation(stripBase(to))}
       routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
     >
@@ -163,6 +166,10 @@ function ClerkProviderWithRoutes() {
           <Route path="/" component={HomeRedirect} />
           <Route path="/sign-in/*?" component={SignInPage} />
           <Route path="/sign-up/*?" component={SignUpPage} />
+          <Route path="/onboarding">
+            <Show when="signed-in"><OnboardingPage /></Show>
+            <Show when="signed-out"><Redirect to="/sign-in" /></Show>
+          </Route>
           
           <Route path="/dashboard"><ProtectedRoute component={DashboardPage} /></Route>
           <Route path="/analyze"><ProtectedRoute component={AnalyzePage} /></Route>
