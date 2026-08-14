@@ -1,0 +1,22 @@
+There's a bug in the "Apni Strategy Chuno" (Pass/Average/Top) feature. Looking at a recent analysis:
+
+- "Bas Pass Hona Hai" (Pass): shows 3/8 topics (~44%)
+- "Average Score Chahiye" (Average): shows 8/8 topics (~100%)
+- "Top Karna Hai" (Top): shows 8/8 topics (~100%)
+
+The Average and Top tiers are showing the exact same list of topics (all 8), with no differentiation between them. This defeats the purpose of having three distinct tiers — Average should logically fall between Pass and Top, showing more than the Pass tier but less than the Top tier.
+
+**Please investigate and fix:**
+
+1. Check the tier-bucketing logic (wherever it computes which topics go into each of the three tiers based on priority). Confirm the intended logic is:
+   - **Pass tier**: only High priority topics
+   - **Average tier**: High + Medium priority topics
+   - **Top tier**: High + Medium + Low priority topics (all of them)
+
+2. Check the actual priority values assigned to each of the 8 topics in this analysis — log them out. It's possible that none of the topics were classified as "Low" priority by the AI, which would explain why Average and Top look identical (if there are no Low priority topics, then "High + Medium" and "High + Medium + Low" naturally become the same list). If this is the case, we have a different problem: the priority classification itself may be too generous, marking too many topics as Medium or High when some should genuinely be Low priority (e.g., topics that appeared only once across all years).
+
+3. If priority classification is the issue, review the priority assignment criteria in the AI prompt — Low priority should be reserved for topics with low frequency/consistency across years (e.g., appeared in only 1 of the years provided), not just "less common than the top ones." Make sure the distribution isn't skewed — a typical analysis should show a reasonable spread across High/Medium/Low, not have everything bunched into High/Medium.
+
+4. If the bucketing code itself has a bug (unrelated to AI classification) — e.g., using the wrong priority filter for one of the tiers — fix that directly.
+
+Please test with the same sample analysis (8-topic subject) and confirm the three tiers now show meaningfully different topic counts and lists (Pass < Average < Top) before telling me it's resolved. Show me the topic-wise priority breakdown you find during debugging so I can understand what was actually happening.

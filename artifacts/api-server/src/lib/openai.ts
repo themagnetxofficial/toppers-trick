@@ -111,7 +111,12 @@ Perform a deep analysis and return JSON in this exact format:
 
 Rules for this response:
 - topics: Aim for 8-12 specific topics. Each topic_name should be a precise concept, NOT a broad chapter name. Split broad areas into their actual distinct sub-concepts.
-- priority: "High" if appeared in 3+ years or carries ≥20 marks; "Medium" if 1-2 years or 10-15 marks; "Low" if rarely appears or very few marks.
+- priority: Use these thresholds strictly:
+  "High"   → appeared in 3+ of the provided years (very consistent pattern)
+  "Medium" → appeared in exactly 2 of the provided years (some consistency)
+  "Low"    → appeared in only 1 of the provided years (one-time appearance, uncertain if it repeats)
+  Exception: if only 1-2 papers were provided, treat "appeared in all provided years" as High, "appeared in 1 of 2" as Medium, and anything with only a brief mention as Low.
+  IMPORTANT — distribution rule: For a typical 8-12 topic analysis, you should have a realistic spread, e.g. roughly 30-40% High, 30-40% Medium, 20-40% Low. Do NOT assign High or Medium to nearly every topic. A topic that appeared in only 1 of 4+ papers is Low, full stop — even if it carried good marks in that one year. Be strict.
 - confidence_level: "High" if pattern is very consistent (3+ years, same format); "Medium" if somewhat consistent; "Low" if only once or inconsistent.
 - study_note: all 3 fields required for every topic. For Low priority, keep kya_padhna_hai very brief (1-2 lines).
 - related_topic_pairs: only include if genuinely observed — empty array [] is fine if none found.
