@@ -146,45 +146,76 @@ export default function LandingPage() {
               <p className="text-muted-foreground text-lg">Cheaper than a good coffee. Way better for your grades.</p>
             </div>
             
-            <div className="bg-background rounded-3xl p-8 sm:p-12 border border-border shadow-xl shadow-primary/5 max-w-lg mx-auto relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-                <BookOpen className="w-32 h-32" />
-              </div>
-              <div className="relative z-10 text-left space-y-8">
+            <div className="grid sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
+              {/* Starter Pack */}
+              <div className="bg-background rounded-3xl p-7 border border-border shadow-md text-left space-y-6 flex flex-col">
                 <div>
-                  <h3 className="text-2xl font-bold font-serif mb-2">Exam Season Pack</h3>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-5xl font-bold">₹129</span>
+                  <h3 className="text-xl font-bold font-serif mb-1">Starter Pack</h3>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold">₹69</span>
+                    <span className="text-muted-foreground text-sm">/ pack</span>
                   </div>
-                  <p className="text-muted-foreground mt-2">10 AI paper analyses.</p>
+                  <p className="text-muted-foreground text-sm mt-1">5 AI paper analyses.</p>
                 </div>
-                
-                <ul className="space-y-4">
+                <ul className="space-y-3 flex-1">
                   {[
-                    "10 Full subject analyses",
-                    "Unlimited paper uploads per analysis",
-                    "High/Medium/Low priority breakdowns",
+                    "5 full subject analyses",
                     "Hinglish strategy tips",
                     "Downloadable PDF guides",
-                    "Never expires"
-                  ].map((feature, i) => (
-                    <li key={i} className="flex items-center gap-3">
-                      <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center shrink-0">
-                        <Check className="h-4 w-4 text-secondary-foreground" />
+                    "Valid for 30 days",
+                  ].map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm">
+                      <div className="w-5 h-5 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                        <Check className="h-3 w-3 text-secondary-foreground" />
                       </div>
-                      <span className="font-medium text-foreground/90">{feature}</span>
+                      <span className="text-foreground/80">{f}</span>
                     </li>
                   ))}
                 </ul>
-                
                 <Link href="/sign-up" className="block">
-                  <Button className="w-full h-12 text-base rounded-xl font-bold shadow-md shadow-primary/20">
-                    Get Started Now
+                  <Button variant="outline" className="w-full h-11 rounded-xl font-bold border-primary text-primary hover:bg-primary/5">
+                    Buy for ₹69
                   </Button>
                 </Link>
-                <p className="text-center text-sm text-muted-foreground">You get 1 free analysis when you sign up.</p>
+              </div>
+
+              {/* Value Pack */}
+              <div className="bg-background rounded-3xl p-7 border-2 border-primary shadow-xl shadow-primary/10 text-left space-y-6 flex flex-col relative overflow-hidden">
+                <div className="absolute top-4 right-4">
+                  <span className="text-xs font-bold bg-primary text-primary-foreground px-2.5 py-1 rounded-full">Best Value</span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold font-serif mb-1">Value Pack</h3>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold">₹129</span>
+                    <span className="text-muted-foreground text-sm">/ pack</span>
+                  </div>
+                  <p className="text-muted-foreground text-sm mt-1">10 AI paper analyses.</p>
+                </div>
+                <ul className="space-y-3 flex-1">
+                  {[
+                    "10 full subject analyses",
+                    "Priority AI processing",
+                    "Hinglish strategy tips",
+                    "Downloadable PDF guides",
+                    "Valid for 30 days",
+                  ].map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm">
+                      <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                        <Check className="h-3 w-3 text-primary" />
+                      </div>
+                      <span className="text-foreground/80">{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/sign-up" className="block">
+                  <Button className="w-full h-11 rounded-xl font-bold shadow-md shadow-primary/20">
+                    Buy for ₹129
+                  </Button>
+                </Link>
               </div>
             </div>
+            <p className="text-sm text-muted-foreground">You get 1 free analysis when you sign up. No credit card required.</p>
           </div>
         </section>
       </main>
