@@ -220,14 +220,40 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="py-12 px-6 border-t border-border bg-background text-center">
-        <div className="max-w-4xl mx-auto flex flex-col items-center justify-center space-y-4">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <BookOpen className="h-5 w-5" />
-            <span className="font-serif font-bold">Smart Study</span>
+      <footer className="py-12 px-6 border-t border-border bg-card">
+        <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between gap-8">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-primary" />
+              <span className="font-serif font-bold">Smart Study</span>
+            </div>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              AI-powered study guides for Indian students. Padhai karo, panic nahi.
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} Smart Study Guide. All rights reserved.</p>
-          <p className="text-xs text-muted-foreground/60 max-w-sm">Built to help Indian students crush their exams with confidence. Padhai karo, panic nahi.</p>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Quick links</p>
+            <ul className="space-y-2">
+              {[
+                { label: "About Us", href: "/about" },
+                { label: "Contact Us", href: "/contact" },
+                { label: "Terms & Conditions", href: "/terms" },
+                { label: "Privacy Policy", href: "/privacy" },
+                { label: "Refund & Cancellation", href: "/refund" },
+              ].map((link) => (
+                <li key={link.href}>
+                  <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        <div className="max-w-4xl mx-auto mt-8 pt-6 border-t border-border text-center">
+          <p className="text-xs text-muted-foreground">
+            © {new Date().getFullYear()} Smart Study Guide. All rights reserved.
+          </p>
         </div>
       </footer>
     </div>

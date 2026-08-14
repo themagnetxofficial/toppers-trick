@@ -1,0 +1,51 @@
+Please create the following pages for the website — these are required for Razorpay payment gateway approval. Make them look professional and properly linked in the site footer (visible on every page).
+
+## 1. About Us page
+Write a genuine, clear description of what the app does: an AI-powered study tool for Indian school and college students that analyzes previous year question papers to identify important topics, priority-based study strategies, and generates Hinglish study guides. Include a short section on the mission (helping students study smarter with limited time) and who it's for (school board students and college/university students). Keep it 200-300 words, professional but warm in tone.
+
+## 2. Contact Us page
+Include:
+- A support email address (use a placeholder like support@[ourdomain].com — I'll provide the real one)
+- A simple contact form (Name, Email, Subject, Message) that sends submissions to that support email
+- Business/registered address (I'll provide this — use a placeholder for now: "[Business Address]")
+- Response time expectation (e.g., "We typically respond within 24-48 hours")
+
+## 3. Terms & Conditions page
+Cover the following, written in clear, simple language:
+- Description of the service (AI-based analysis of user-uploaded question papers, generating study guides)
+- User eligibility (must be a genuine user, no misuse of the platform)
+- User responsibilities (only upload content they have rights to use/study from, not upload copyrighted material for redistribution)
+- Credits/payment terms: purchased credits are used per analysis, and expire 30 days from purchase date (reference our actual credit system)
+- Free trial: 2 free analyses provided at signup
+- Limitation of liability: the AI-generated analysis is a study aid based on pattern recognition from past papers and does NOT guarantee exam questions or results; it should be used as a supplementary study tool, not a sole preparation method
+- Account termination rights (company can suspend accounts for misuse)
+- Governing law: India
+- Right to modify terms with notice
+
+## 4. Privacy Policy page
+Cover the following clearly, since this is important — we handle user-uploaded academic documents:
+- What data we collect: account info (email/phone), uploaded question paper files, generated analysis results, payment information (processed via Razorpay, we don't store card details)
+- How uploaded files are used: files are processed to extract text, sent to OpenAI's API for analysis, and the extracted text/analysis results may be temporarily stored to generate the study guide and analysis history
+- Third-party services used: OpenAI (for AI analysis), Razorpay (for payment processing) — mention that these third parties have their own privacy policies
+- Data retention: how long uploaded files and analysis results are kept (state a reasonable policy — e.g., "uploaded files are deleted after processing; analysis results are retained as part of your account history until you delete them or close your account")
+- User rights: right to request data deletion, right to access their data
+- Security measures taken to protect user data
+- Contact information for privacy-related questions
+- Cookie usage if applicable
+
+## 5. Refund & Cancellation Policy page
+Cover:
+- Since this is a digital service (AI analysis credits), refunds are generally not provided once credits have been used
+- If a payment was made but credits were not added to the account due to a technical error, users can contact support within 7 days for resolution
+- Credits expire 30 days after purchase and are non-refundable after expiry
+- Free trial credits are non-transferable and have no monetary value
+- Process for requesting a refund in case of a genuine payment/technical issue (via the Contact Us page or support email)
+- Refund processing timeline if approved (e.g., "5-7 business days back to original payment method via Razorpay")
+
+## Implementation notes
+- Add links to all these pages in the website footer, visible on every page
+- Make sure these pages are publicly accessible (not behind login) since Razorpay's review process will check them without an account
+- Use the same design language/branding as the rest of the site so they look integrated, not like afterthought pages
+- Once done, list out all the page URLs so I can review the content before submitting for Razorpay approval
+
+Note: I understand these are template drafts to get the site functional for Razorpay review — I'll have someone review the Terms, Privacy Policy, and Refund Policy content for legal accuracy before final launch, but for now these need to be complete, professional, and specific to what our app actually does (not generic placeholder text).

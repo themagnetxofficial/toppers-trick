@@ -15,6 +15,11 @@ import HistoryPage from "./pages/history";
 import PricingPage from "./pages/pricing";
 import ProfilePage from "./pages/profile";
 import OnboardingPage from "./pages/onboarding";
+import AboutPage from "./pages/about";
+import ContactPage from "./pages/contact";
+import TermsPage from "./pages/terms";
+import PrivacyPage from "./pages/privacy";
+import RefundPage from "./pages/refund";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -170,7 +175,14 @@ function ClerkProviderWithRoutes() {
             <Show when="signed-in"><OnboardingPage /></Show>
             <Show when="signed-out"><Redirect to="/sign-in" /></Show>
           </Route>
-          
+
+          {/* Public pages — no auth required */}
+          <Route path="/about" component={AboutPage} />
+          <Route path="/contact" component={ContactPage} />
+          <Route path="/terms" component={TermsPage} />
+          <Route path="/privacy" component={PrivacyPage} />
+          <Route path="/refund" component={RefundPage} />
+
           <Route path="/dashboard"><ProtectedRoute component={DashboardPage} /></Route>
           <Route path="/analyze"><ProtectedRoute component={AnalyzePage} /></Route>
           <Route path="/analyses/:id"><ProtectedRoute component={AnalysisResultPage} /></Route>
