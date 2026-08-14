@@ -130,8 +130,8 @@ export default function PricingPage() {
               {[
                 "5 full subject analyses",
                 "PDF study guide generation",
-                "Unlimited paper uploads per subject",
-                "Credits never expire",
+                "Upload up to 5 papers per analysis",
+                "Valid for 30 days from purchase",
               ].map((feature, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
@@ -189,8 +189,8 @@ export default function PricingPage() {
                 "10 full subject analyses",
                 "Priority AI processing",
                 "PDF study guide generation",
-                "Unlimited paper uploads per subject",
-                "Credits never expire",
+                "Upload up to 5 papers per analysis",
+                "Valid for 30 days from purchase",
               ].map((feature, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-0.5">
