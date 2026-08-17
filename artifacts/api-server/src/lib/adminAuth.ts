@@ -23,14 +23,6 @@ export const requireAdmin = async (
     const adminClerkUserId = process.env.ADMIN_CLERK_USER_ID;
     const isEnvAdmin = !!adminClerkUserId && clerkUserId === adminClerkUserId;
 
-    // TEMP DEBUG — remove after admin access is confirmed
-    logger.info({
-      msg: "[ADMIN DEBUG] access check",
-      clerkUserIdFromToken: clerkUserId,
-      adminClerkUserIdFromEnv: adminClerkUserId ?? "(not set)",
-      match: isEnvAdmin,
-    });
-
     const user = await db
       .select()
       .from(usersTable)

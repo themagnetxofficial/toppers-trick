@@ -67,12 +67,30 @@ function priorityBadgeClass(p: string) {
   }
 }
 
+function priorityLabel(p: string): string {
+  switch (p.toLowerCase()) {
+    case "high": return "Must Do";
+    case "medium": return "Should Do";
+    case "low": return "If Time";
+    default: return p;
+  }
+}
+
 function confidenceBadgeClass(c: string) {
   switch (c.toLowerCase()) {
     case "high": return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400";
     case "medium": return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400";
     case "low": return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400";
     default: return "bg-gray-100 text-gray-800";
+  }
+}
+
+function confidenceLabel(c: string): string {
+  switch (c.toLowerCase()) {
+    case "high": return "✓ High Confidence";
+    case "medium": return "~ Medium Confidence";
+    case "low": return "? Low Confidence";
+    default: return c;
   }
 }
 
@@ -401,11 +419,11 @@ export default function AnalysisResultPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0 flex-wrap">
                       <Badge variant="outline" className={cn("border text-xs px-2 py-0.5", priorityBadgeClass(priority))}>
-                        {priority} Priority
+                        {priorityLabel(priority)}
                       </Badge>
                       {confidence && (
                         <Badge variant="outline" className={cn("border text-xs px-2 py-0.5", confidenceBadgeClass(confidence))}>
-                          {confidence} Confidence
+                          {confidenceLabel(confidence)}
                         </Badge>
                       )}
                       <div className="text-xs font-medium text-muted-foreground bg-secondary/50 px-2 py-1 rounded-md whitespace-nowrap">

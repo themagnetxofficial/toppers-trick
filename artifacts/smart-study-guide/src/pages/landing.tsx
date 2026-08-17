@@ -43,7 +43,7 @@ export default function LandingPage() {
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-400">minus the stress.</span>
             </h1>
             <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Upload your previous year question papers. Our AI analyzes the patterns and tells you exactly what chapters to study first, complete with Hinglish notes and a downloadable strategy PDF.
+              Upload your previous year question papers. Our AI analyzes the patterns and tells you exactly what topics to study first, complete with Hinglish notes and a downloadable strategy PDF.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <Link href="/sign-up">
@@ -81,7 +81,7 @@ export default function LandingPage() {
                 {
                   icon: Target,
                   title: "3. Get Your Strategy",
-                  desc: "Get chapter priorities, short Hinglish notes, and a PDF guide to keep."
+                  desc: "Get topic priorities, short Hinglish notes, and a PDF guide to keep."
                 }
               ].map((step, i) => (
                 <div key={i} className="relative flex flex-col items-center text-center space-y-4 group">

@@ -277,8 +277,10 @@ router.post("/admin/users/:id/admin", async (req, res): Promise<void> => {
 router.get("/admin/payments", async (req, res): Promise<void> => {
   try {
     const status = req.query.status ? String(req.query.status) : undefined;
-    const from = req.query.from ? new Date(String(req.query.from)) : undefined;
-    const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+    const fromRaw = req.query.from ? new Date(String(req.query.from)) : undefined;
+    const toRaw = req.query.to ? new Date(String(req.query.to)) : undefined;
+    const from = fromRaw && !isNaN(fromRaw.getTime()) ? fromRaw : undefined;
+    const to = toRaw && !isNaN(toRaw.getTime()) ? toRaw : undefined;
 
     const conditions = [];
     if (status && status !== "all") conditions.push(eq(paymentsTable.status, status));
