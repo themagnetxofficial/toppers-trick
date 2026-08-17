@@ -1,5 +1,4 @@
 import { Link } from "wouter";
-import { BookOpen } from "lucide-react";
 
 const footerLinks = [
   { label: "About Us", href: "/about" },
@@ -15,9 +14,9 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b border-border">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors">
-            <BookOpen className="h-6 w-6 text-primary" />
-            <span className="font-serif text-lg font-bold">Smart Study</span>
+          <Link href="/" className="flex items-center gap-2 text-foreground hover:opacity-80 transition-opacity">
+            <img src="/icon.png" alt="ToppersTrick" className="h-8 w-8 rounded-md" />
+            <span className="font-serif text-lg font-bold">ToppersTrick</span>
           </Link>
           <div className="flex items-center gap-4">
             <Link href="/sign-in" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -41,8 +40,8 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
           <div className="flex flex-col md:flex-row justify-between gap-8">
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-primary" />
-                <span className="font-serif font-bold">Smart Study</span>
+                <img src="/icon.png" alt="ToppersTrick" className="h-6 w-6 rounded-sm" />
+                <span className="font-serif font-bold">ToppersTrick</span>
               </div>
               <p className="text-sm text-muted-foreground max-w-xs">
                 AI-powered study guides for Indian students. Padhai karo, panic nahi.
@@ -63,7 +62,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="mt-8 pt-6 border-t border-border text-center">
             <p className="text-xs text-muted-foreground">
-              © {new Date().getFullYear()} Smart Study Guide. All rights reserved.
+              © {new Date().getFullYear()} ToppersTrick. All rights reserved.
             </p>
           </div>
         </div>

@@ -63,7 +63,7 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold font-serif">Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">Overview of Smart Study Guide</p>
+        <p className="text-muted-foreground text-sm mt-0.5">Overview of ToppersTrick</p>
       </div>
 
       {/* Stats grid */}

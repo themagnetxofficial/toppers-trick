@@ -55,7 +55,7 @@ export default function PricingPage() {
           key: order.key,
           amount: order.amount,
           currency: order.currency,
-          name: "Smart Study Guide",
+          name: "ToppersTrick",
           description: `${PACKAGES[packageId].label} — ${creditsToAdd} AI Paper Analyses`,
           order_id: order.orderId,
           handler: function (response: any) {

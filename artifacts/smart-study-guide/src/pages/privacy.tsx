@@ -20,7 +20,7 @@ export default function PrivacyPage() {
         </div>
 
         <p className="text-foreground/75 leading-relaxed">
-          At Smart Study Guide, we take your privacy seriously. This Privacy Policy explains what data we collect, 
+          At ToppersTrick, we take your privacy seriously. This Privacy Policy explains what data we collect, 
           how we use it, and your rights regarding your personal information. By using our platform, you agree to 
           the practices described in this policy.
         </p>
@@ -38,7 +38,7 @@ export default function PrivacyPage() {
           <div className="pt-8">
             <Section title="2. How We Use Your Data">
               <ul className="list-disc list-inside space-y-1 pl-2">
-                <li>To provide and operate the Smart Study Guide service.</li>
+                <li>To provide and operate the ToppersTrick service.</li>
                 <li>To process your uploaded question papers through our AI analysis pipeline.</li>
                 <li>To store your generated study guides as part of your analysis history.</li>
                 <li>To manage your credit balance and process payments.</li>
@@ -102,7 +102,7 @@ export default function PrivacyPage() {
 
           <div className="pt-8">
             <Section title="6. Your Rights">
-              <p>As a user of Smart Study Guide, you have the following rights:</p>
+              <p>As a user of ToppersTrick, you have the following rights:</p>
               <ul className="list-disc list-inside space-y-1 pl-2">
                 <li><strong className="text-foreground">Access:</strong> You can access your account data, analysis history, and credit balance at any time through the platform.</li>
                 <li><strong className="text-foreground">Deletion:</strong> You can request deletion of your account and all associated data by contacting us at <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>.</li>
@@ -138,7 +138,7 @@ export default function PrivacyPage() {
           <div className="pt-8">
             <Section title="8. Cookies">
               <p>
-                Smart Study Guide uses cookies and similar browser storage mechanisms to maintain your login session 
+                ToppersTrick uses cookies and similar browser storage mechanisms to maintain your login session 
                 and remember your preferences. These are essential for the service to function correctly. We do not 
                 use cookies for advertising or cross-site tracking.
               </p>

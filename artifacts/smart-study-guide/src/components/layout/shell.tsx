@@ -1,7 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { 
-  BookOpen, 
   LayoutDashboard, 
   FilePlus2, 
   History, 
@@ -30,9 +29,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Sidebar for desktop */}
       <aside className="hidden md:flex w-64 flex-col bg-card border-r border-border">
-        <div className="h-16 flex items-center px-6 border-b border-border">
-          <BookOpen className="h-6 w-6 text-primary mr-2" />
-          <span className="font-serif text-lg font-bold">Smart Study</span>
+        <div className="h-16 flex items-center px-6 border-b border-border gap-2">
+          <img src="/icon.png" alt="ToppersTrick" className="h-7 w-7 rounded-md" />
+          <span className="font-serif text-lg font-bold">ToppersTrick</span>
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
@@ -77,9 +76,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Mobile Header & Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="md:hidden h-16 flex items-center justify-between px-4 bg-card border-b border-border">
-          <div className="flex items-center">
-            <BookOpen className="h-6 w-6 text-primary mr-2" />
-            <span className="font-serif text-lg font-bold">Smart Study</span>
+          <div className="flex items-center gap-2">
+            <img src="/icon.png" alt="ToppersTrick" className="h-7 w-7 rounded-md" />
+            <span className="font-serif text-lg font-bold">ToppersTrick</span>
           </div>
           <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
             <Menu className="h-6 w-6" />

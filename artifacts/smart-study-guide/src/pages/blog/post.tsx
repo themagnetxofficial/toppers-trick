@@ -77,7 +77,7 @@ export default function BlogPostPage() {
   return (
     <PublicLayout>
       <Helmet>
-        <title>{post.metaTitle ?? post.title} | Smart Study Blog</title>
+        <title>{post.metaTitle ?? post.title} | ToppersTrick Blog</title>
         <meta name="description" content={post.metaDescription ?? post.excerpt ?? ""} />
         <meta property="og:title" content={post.metaTitle ?? post.title} />
         <meta property="og:description" content={post.metaDescription ?? post.excerpt ?? ""} />
@@ -139,7 +139,7 @@ export default function BlogPostPage() {
           </p>
           <Link href="/sign-up">
             <Button className="rounded-xl gap-1.5 mt-2">
-              Try Smart Study Free <ArrowRight className="h-4 w-4" />
+              Try ToppersTrick Free <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
         </div>

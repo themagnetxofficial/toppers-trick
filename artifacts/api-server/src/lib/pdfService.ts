@@ -9,6 +9,7 @@ const PDF_OUTPUT_DIR = path.join(API_SERVER_ROOT, "generated_pdfs");
 const FONT_DIR = path.join(API_SERVER_ROOT, "assets", "fonts");
 const KALAM = path.join(FONT_DIR, "Kalam-Regular.ttf");
 const KALAM_BOLD = path.join(FONT_DIR, "Kalam-Bold.ttf");
+const BRAND_LOGO = path.join(API_SERVER_ROOT, "assets", "icon.png");
 
 export function ensureDirectories() {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -130,14 +131,29 @@ function renderHeader(
     yearsAnalyzed: number | string[];
   }
 ) {
+  // Navy header bar
   doc.save()
-    .rect(0, 0, PAGE_W, 6)
+    .rect(0, 0, PAGE_W, 52)
+    .fill("#0F1F3C")
+    .restore();
+
+  // Logo (left-aligned in bar)
+  const logoSize = 36;
+  if (fs.existsSync(BRAND_LOGO)) {
+    doc.image(BRAND_LOGO, MARGIN, 8, { width: logoSize, height: logoSize });
+  }
+
+  // Brand name (right of logo, vertically centred in bar)
+  doc.fontSize(18).fillColor("#FFFFFF").font("Kalam-Bold")
+    .text("ToppersTrick", MARGIN + logoSize + 10, 20, { width: 200, lineBreak: false });
+
+  // Thin amber accent line below header bar
+  doc.save()
+    .rect(0, 52, PAGE_W, 4)
     .fill("#D97706")
     .restore();
 
-  doc.text("", MARGIN, 30);
-  doc.fontSize(28).fillColor("#D97706").font("Kalam-Bold")
-    .text("Smart Study Guide", MARGIN, 30, { width: CONTENT_W, align: "center" });
+  doc.text("", MARGIN, 72);
   doc.moveDown(0.4);
 
   doc.fontSize(20).fillColor("#111827").font("Kalam-Bold")

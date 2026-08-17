@@ -11,9 +11,9 @@ export default function AboutPage() {
 
         <div className="prose prose-neutral max-w-none space-y-6 text-foreground/80 leading-relaxed">
           <p className="text-lg text-foreground">
-            Smart Study Guide is an AI-powered study tool built specifically for Indian school and college students. 
+            ToppersTrick is an AI-powered study tool built specifically for Indian school and college students. 
             We know what exam season feels like — the pile of ten-year question papers, the uncertainty about what 
-            to focus on, the anxiety of not knowing whether you're preparing right. We built Smart Study to fix exactly that.
+            to focus on, the anxiety of not knowing whether you're preparing right. We built ToppersTrick to fix exactly that.
           </p>
 
           <p>
@@ -27,14 +27,14 @@ export default function AboutPage() {
           <h2 className="text-2xl font-bold font-serif pt-4">Our Mission</h2>
           <p>
             Most students don't need to study more — they need to study smarter. We believe every student, regardless 
-            of their coaching budget or school resources, deserves access to data-driven exam preparation. Smart Study 
+            of their coaching budget or school resources, deserves access to data-driven exam preparation. ToppersTrick 
             takes what toppers and experienced teachers have always known — past paper trends tell you a lot about what's 
             coming — and makes it instantly available to anyone with a phone and their old question papers.
           </p>
 
           <h2 className="text-2xl font-bold font-serif pt-4">Who Is It For?</h2>
           <p>
-            Smart Study is built for students preparing for board exams (CBSE, ICSE, and state boards), as well as 
+            ToppersTrick is built for students preparing for board exams (CBSE, ICSE, and state boards), as well as 
             undergraduate and postgraduate university examinations. Whether you're in Class 10 or Class 12, or studying 
             for semester exams in college, our tool works across subjects and syllabi — as long as you have past papers 
             to upload.
@@ -42,7 +42,7 @@ export default function AboutPage() {
 
           <p>
             We're a small, India-based team that cares deeply about making quality study tools accessible and affordable. 
-            Smart Study is designed to be your smart study companion — not a replacement for understanding your subject, 
+            ToppersTrick is designed to be your smart study companion — not a replacement for understanding your subject, 
             but the sharpest possible shortcut for knowing where to focus your energy.
           </p>
         </div>

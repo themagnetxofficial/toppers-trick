@@ -1,0 +1,21 @@
+I have finalized our logo (navy background with a white "T" mark) and I'm uploading the image file(s). Please apply this logo consistently across the entire application in all the following places:
+
+1. **Favicon**: Generate and set the favicon (browser tab icon) using this logo — create all standard sizes needed (16x16, 32x32, 180x180 for Apple touch icon, and any other standard favicon sizes/formats needed for cross-browser and cross-device support).
+
+2. **Header/Navbar logo**: Replace the current "ToppersTrick" text-only logo in the sidebar/header with this icon (either icon-only, or icon + "ToppersTrick" text next to it — use your judgment on which looks better based on available space, but keep it clean and properly sized/aligned).
+
+3. **Login/Signup pages**: If there's a logo shown on the authentication pages, update it here too.
+
+4. **PDF branding**: Add this logo to the header of the generated study guide PDF (near the "ToppersTrick" title text).
+
+5. **Meta tags / Open Graph image**: Set this logo (or a version of it) as the site's Open Graph image (`og:image`) so it displays properly when the site is shared on social media, WhatsApp, etc. If a larger banner-style image is better for this purpose (Open Graph images typically work best at 1200x630px), let me know and use the logo as the central element of a simple branded banner instead of just the square icon alone.
+
+6. **Loading states/splash screens**: If there's any loading spinner or splash screen shown while the app loads, incorporate the logo there if it makes sense.
+
+7. **Footer**: Add the logo (small size) near the copyright text in the footer if there's space for it.
+
+8. **Blog section**: Apply the same logo to the blog pages (header/branding area) so it's consistent with the rest of the site.
+
+9. **Admin panel**: Apply the same logo to the admin panel's header/sidebar for consistency, even though it's an internal tool.
+
+Please make sure the logo is properly optimized (compressed, correct file format — SVG if possible for crisp scaling, otherwise high-quality PNG with transparent background) so it doesn't slow down page load times. Once done, show me screenshots of the homepage, a results page, the PDF, and the browser tab (to confirm the favicon) so I can verify the branding looks consistent everywhere.

@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import {
-  BookOpen, LayoutDashboard, Users, CreditCard, FileText,
+  LayoutDashboard, Users, CreditCard, FileText,
   MessageSquare, PenTool, LogOut, Menu, X, ChevronRight,
 } from "lucide-react";
 import { useClerk } from "@clerk/react";
@@ -29,8 +29,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside className="hidden md:flex w-60 flex-col bg-card border-r border-border shrink-0">
         <div className="h-14 flex items-center px-5 border-b border-border gap-2">
-          <BookOpen className="h-5 w-5 text-primary" />
-          <span className="font-serif font-bold">Admin</span>
+          <img src="/icon.png" alt="ToppersTrick" className="h-7 w-7 rounded-md" />
+          <span className="font-serif font-bold text-sm">ToppersTrick</span>
           <span className="ml-auto text-xs bg-destructive/10 text-destructive px-1.5 py-0.5 rounded font-semibold">ADMIN</span>
         </div>
         <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
@@ -51,7 +51,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <div className="p-3 border-t border-border space-y-1">
           <Link href="/">
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors">
-              <BookOpen className="h-4 w-4" />
+              <img src="/icon.png" alt="" className="h-3.5 w-3.5 rounded-sm opacity-60" />
               Back to App
             </div>
           </Link>
@@ -69,8 +69,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="md:hidden h-14 flex items-center justify-between px-4 bg-card border-b border-border shrink-0">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-primary" />
-            <span className="font-serif font-bold">Admin</span>
+            <img src="/icon.png" alt="ToppersTrick" className="h-7 w-7 rounded-md" />
+            <span className="font-serif font-bold text-sm">ToppersTrick</span>
+            <span className="text-xs bg-destructive/10 text-destructive px-1.5 py-0.5 rounded font-semibold">ADMIN</span>
           </div>
           <Button variant="ghost" size="icon" onClick={() => setOpen(!open)}>
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

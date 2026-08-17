@@ -1,14 +1,14 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Sparkles, Target, Zap, Clock, ShieldCheck } from "lucide-react";
+import { Sparkles, Target, Zap, Clock, ShieldCheck, FileText } from "lucide-react";
 
 export default function LandingPage() {
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background selection:bg-primary/20">
       <header className="px-6 h-20 flex items-center justify-between border-b border-border/50 sticky top-0 bg-background/80 backdrop-blur-md z-50">
         <div className="flex items-center gap-2">
-          <BookOpen className="h-7 w-7 text-primary" />
-          <span className="font-serif text-xl font-bold tracking-tight">Smart Study</span>
+          <img src="/icon.png" alt="ToppersTrick" className="h-8 w-8 rounded-md" />
+          <span className="font-serif text-xl font-bold tracking-tight">ToppersTrick</span>
         </div>
         <nav className="hidden md:flex items-center gap-8">
           <a href="#how-it-works" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">How it works</a>
@@ -128,7 +128,7 @@ export default function LandingPage() {
             </div>
             <div className="flex gap-4">
               <div className="w-12 h-12 shrink-0 rounded-2xl bg-secondary flex items-center justify-center text-secondary-foreground">
-                <BookOpen className="h-6 w-6" />
+                <FileText className="h-6 w-6" />
               </div>
               <div className="space-y-2">
                 <h4 className="text-xl font-bold font-serif">PDF Study Guide</h4>
@@ -224,8 +224,8 @@ export default function LandingPage() {
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between gap-8">
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <BookOpen className="h-5 w-5 text-primary" />
-              <span className="font-serif font-bold">Smart Study</span>
+              <img src="/icon.png" alt="ToppersTrick" className="h-6 w-6 rounded-sm" />
+              <span className="font-serif font-bold">ToppersTrick</span>
             </div>
             <p className="text-sm text-muted-foreground max-w-xs">
               AI-powered study guides for Indian students. Padhai karo, panic nahi.
@@ -252,7 +252,7 @@ export default function LandingPage() {
         </div>
         <div className="max-w-4xl mx-auto mt-8 pt-6 border-t border-border text-center">
           <p className="text-xs text-muted-foreground">
-            © {new Date().getFullYear()} Smart Study Guide. All rights reserved.
+            © {new Date().getFullYear()} ToppersTrick. All rights reserved.
           </p>
         </div>
       </footer>

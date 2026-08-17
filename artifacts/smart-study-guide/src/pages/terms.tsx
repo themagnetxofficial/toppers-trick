@@ -20,7 +20,7 @@ export default function TermsPage() {
         </div>
 
         <p className="text-foreground/75 leading-relaxed">
-          Please read these Terms and Conditions carefully before using Smart Study Guide ("the Service", "the Platform"). 
+          Please read these Terms and Conditions carefully before using ToppersTrick ("the Service", "the Platform"). 
           By creating an account or using the Service in any way, you agree to be bound by these terms. If you do not 
           agree, please do not use the Service.
         </p>
@@ -28,7 +28,7 @@ export default function TermsPage() {
         <div className="space-y-8 divide-y divide-border">
           <Section title="1. Description of Service">
             <p>
-              Smart Study Guide is an AI-powered study tool that allows users to upload previous-year question papers 
+              ToppersTrick is an AI-powered study tool that allows users to upload previous-year question papers 
               (PDFs or images) for analysis. Our platform processes these files to identify topic patterns, generates 
               priority-based study guides, and provides downloadable PDF study materials. The AI analysis is generated 
               using large language model technology via third-party APIs.
@@ -38,7 +38,7 @@ export default function TermsPage() {
           <div className="pt-8">
             <Section title="2. User Eligibility">
               <p>
-                The Service is intended for genuine students and educational users. By using Smart Study Guide, you confirm 
+                The Service is intended for genuine students and educational users. By using ToppersTrick, you confirm 
                 that you are at least 13 years of age and that you will not misuse the platform. If you are under 18 years of 
                 age, you must have parental or guardian consent to use the Service.
               </p>
@@ -51,7 +51,7 @@ export default function TermsPage() {
 
           <div className="pt-8">
             <Section title="3. User Responsibilities">
-              <p>You are solely responsible for the content you upload to Smart Study Guide. By uploading files, you confirm that:</p>
+              <p>You are solely responsible for the content you upload to ToppersTrick. By uploading files, you confirm that:</p>
               <ul className="list-disc list-inside space-y-1 pl-2">
                 <li>You have the right to use the materials for personal study purposes.</li>
                 <li>You are not uploading files with the intent to redistribute, reproduce, or commercially exploit them.</li>
@@ -59,7 +59,7 @@ export default function TermsPage() {
                 <li>You will not attempt to reverse-engineer, scrape, or misuse the platform's AI systems.</li>
               </ul>
               <p>
-                Smart Study Guide is a personal study aid. It is not intended for commercial tutoring, content resale, 
+                ToppersTrick is a personal study aid. It is not intended for commercial tutoring, content resale, 
                 or any use that violates the intellectual property rights of exam boards or publishers.
               </p>
             </Section>
@@ -68,7 +68,7 @@ export default function TermsPage() {
           <div className="pt-8">
             <Section title="4. Credits and Payment Terms">
               <p>
-                Smart Study Guide operates on a credit-based system. Each AI analysis consumes one credit from your account balance.
+                ToppersTrick operates on a credit-based system. Each AI analysis consumes one credit from your account balance.
               </p>
               <ul className="list-disc list-inside space-y-1 pl-2">
                 <li><strong className="text-foreground">Purchased credits</strong> expire 30 days from the date of purchase and are non-refundable after expiry.</li>
@@ -97,7 +97,7 @@ export default function TermsPage() {
                 will appear in any future examination, and should not be relied upon as the sole method of exam preparation.
               </p>
               <p>
-                Smart Study Guide makes no warranties, express or implied, regarding the accuracy, completeness, or 
+                ToppersTrick makes no warranties, express or implied, regarding the accuracy, completeness, or 
                 fitness for purpose of the generated content. We are not liable for any loss of marks, exam results, or 
                 other academic outcomes arising from reliance on the platform.
               </p>
@@ -127,7 +127,7 @@ export default function TermsPage() {
           <div className="pt-8">
             <Section title="8. Intellectual Property">
               <p>
-                All content, design, code, and branding on the Smart Study Guide platform is the intellectual property 
+                All content, design, code, and branding on the ToppersTrick platform is the intellectual property 
                 of the Company. You may not reproduce, copy, or distribute any part of the platform without prior written 
                 permission.
               </p>

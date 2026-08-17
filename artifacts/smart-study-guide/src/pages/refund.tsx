@@ -21,14 +21,14 @@ export default function RefundPage() {
         </div>
 
         <p className="text-foreground/75 leading-relaxed">
-          Smart Study Guide sells digital AI analysis credits — a service that is delivered instantly upon purchase. 
+          ToppersTrick sells digital AI analysis credits — a service that is delivered instantly upon purchase. 
           Please read this policy carefully before making a purchase.
         </p>
 
         <div className="space-y-8 divide-y divide-border">
           <Section title="1. General Refund Policy">
             <p>
-              Since Smart Study Guide provides a digital service (AI analysis credits that are consumed per use), 
+              Since ToppersTrick provides a digital service (AI analysis credits that are consumed per use), 
               <strong className="text-foreground"> refunds are generally not provided once credits have been used</strong>. 
               Once an analysis has been successfully completed and a credit has been consumed, that analysis is 
               considered delivered and is non-refundable.
@@ -76,7 +76,7 @@ export default function RefundPage() {
           <div className="pt-8">
             <Section title="5. Cancellation">
               <p>
-                Smart Study Guide does not offer subscription plans — you purchase credits as needed. There is nothing 
+                ToppersTrick does not offer subscription plans — you purchase credits as needed. There is nothing 
                 to "cancel" on an ongoing basis. If you no longer wish to use the platform, simply stop purchasing credits. 
                 Any unused credits in your account will remain valid until their expiry date.
               </p>
