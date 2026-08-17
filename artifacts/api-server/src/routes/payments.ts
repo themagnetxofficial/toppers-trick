@@ -70,6 +70,7 @@ router.post(
         userId: req.userId!,
         amount: pkg.amountPaise,
         razorpayOrderId: order.id as string,
+        packageName: packageId,
         status: "pending",
       });
 

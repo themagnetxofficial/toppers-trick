@@ -4,6 +4,7 @@ import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from 'wouter';
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "@/components/ui/toaster";
 import { Shell } from "@/components/layout/shell";
 
@@ -21,6 +22,9 @@ import TermsPage from "./pages/terms";
 import PrivacyPage from "./pages/privacy";
 import RefundPage from "./pages/refund";
 import NotFound from "./pages/not-found";
+import { AdminArea } from "./pages/admin/index";
+import BlogListingPage from "./pages/blog/index";
+import BlogPostPage from "./pages/blog/post";
 
 const queryClient = new QueryClient();
 
@@ -189,7 +193,14 @@ function ClerkProviderWithRoutes() {
           <Route path="/history"><ProtectedRoute component={HistoryPage} /></Route>
           <Route path="/pricing"><ProtectedRoute component={PricingPage} /></Route>
           <Route path="/profile"><ProtectedRoute component={ProfilePage} /></Route>
-          
+
+          {/* Admin area */}
+          <Route path="/admin/*?" component={AdminArea} />
+
+          {/* Public blog */}
+          <Route path="/blog/:slug" component={BlogPostPage} />
+          <Route path="/blog" component={BlogListingPage} />
+
           <Route component={NotFound} />
         </Switch>
       </QueryClientProvider>
@@ -199,10 +210,12 @@ function ClerkProviderWithRoutes() {
 
 function App() {
   return (
-    <WouterRouter base={basePath}>
-      <ClerkProviderWithRoutes />
-      <Toaster />
-    </WouterRouter>
+    <HelmetProvider>
+      <WouterRouter base={basePath}>
+        <ClerkProviderWithRoutes />
+        <Toaster />
+      </WouterRouter>
+    </HelmetProvider>
   );
 }
 

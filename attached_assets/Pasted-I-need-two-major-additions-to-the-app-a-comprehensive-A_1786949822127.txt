@@ -1,0 +1,75 @@
+I need two major additions to the app: a comprehensive Admin Panel, and a Blog section (for SEO purposes). Please implement both.
+
+---
+
+## PART 1: Admin Panel
+
+Create a separate, protected admin panel accessible only to admin accounts (not regular users). This should be at a route like `/admin` and require admin-level authentication (a simple `is_admin` flag on the user record is fine — I'll manually set my account as admin in the database, or provide a way to do this via an environment variable/seed script).
+
+The admin panel should have the following sections:
+
+### 1. Dashboard (Overview)
+- Total registered users
+- Total revenue (all-time, this month, today) — pull from payment records
+- Total analyses run (all-time, this month, today)
+- Total AI token usage and estimated AI cost (all-time, this month) — using the token_usage_logs table we already have
+- Active credit packs sold breakdown (Starter vs Value pack counts)
+- A simple line/bar chart showing signups and revenue over the last 30 days
+
+### 2. Users Management
+- Searchable, paginated table of all users: name/email, signup date, current credit balance, total amount spent, number of analyses run
+- Ability to view a single user's full detail: their analysis history, payment history, credit batches (with expiry dates)
+- Ability to manually add/adjust credits for a user (for support/goodwill cases)
+- Ability to suspend/ban a user account if needed
+
+### 3. Payments/Transactions
+- Table of all payment transactions: user, amount, package purchased, Razorpay payment ID, status, date
+- Filter by date range and status
+- Export to CSV option
+
+### 4. Analyses Log
+- Table of all analyses run: user, subject, category (school/college), date, status (completed/failed), tokens used, estimated cost
+- Ability to view the full analysis output for debugging/support purposes
+- Filter by status (useful to spot failed analyses that might need investigation)
+
+### 5. Support/Contact Submissions
+- Table of all Contact Us form submissions with name, email, subject, message, date
+- Mark as "resolved" / "pending" status
+
+### 6. Blog Management (see Part 2 below for full details) — should be accessible from within the admin panel
+
+---
+
+## PART 2: Blog Section (for SEO)
+
+We need a blog to publish content like "CBSE Class 12 Economics Important Topics 2026" etc., to rank on Google and drive organic traffic. This needs two parts: a public-facing blog (for readers/SEO) and an easy admin interface to write and publish posts (for us, non-technical use).
+
+### Public Blog Pages
+- Blog listing page at `/blog` — shows published posts as cards (title, featured image, short excerpt, publish date, category tag), paginated
+- Individual blog post page at `/blog/[slug]` — clean, readable article layout with proper heading hierarchy (H1 for title, H2/H3 for subheadings), optimized for SEO
+- Each blog post page must have proper SEO meta tags: page title, meta description, canonical URL, Open Graph tags for social sharing
+- Include a simple "Related Posts" section at the bottom of each post (based on category/tags)
+- Blog posts should be crawlable/indexable by Google (no login required, proper sitemap inclusion — add blog URLs to the site's sitemap.xml if one exists, or create one)
+- Add a call-to-action within/at the end of blog posts linking back to the main app (e.g., "Analyze your own papers with ToppersTrick →")
+
+### Admin Blog Editor (must be EASY to use — this is important)
+- A rich text editor (WYSIWYG) for writing posts — support headings, bold/italic, bullet lists, numbered lists, links, and image insertion directly within the content (not just a plain textarea or raw markdown/HTML input, since I'm not technical and need something visual like a simple version of Google Docs/Notion editing experience)
+- Fields needed when creating/editing a post:
+  - Title
+  - URL slug (auto-generate from title, but allow manual editing)
+  - Featured image upload
+  - Category/tag (simple dropdown or free-text tags)
+  - Short excerpt/summary (for the listing page and meta description)
+  - SEO fields: meta title (can default to post title), meta description (can default to excerpt)
+  - Main content (rich text editor as described above)
+  - Status: Draft or Published
+  - Scheduled publish date/time (optional — nice to have, not critical for v1)
+- A list view in the admin panel showing all blog posts (draft and published) with quick edit/delete/publish-toggle actions
+- Auto-save draft functionality would be valuable so I don't lose work while writing (nice to have, not blocking for v1)
+
+### Technical suggestion
+For the rich text editor, please use a well-supported library like TipTap, Quill, or similar — something that outputs clean HTML that can be safely rendered on the public blog page. Please sanitize any user-input HTML properly to avoid XSS issues since this content will be rendered publicly.
+
+---
+
+Please implement both parts. Given the size of this, feel free to build the Admin Dashboard overview and Users Management first, then Payments/Analyses logs, and finally the Blog system (both admin editor and public pages) — let me know your suggested order and give me progress updates as each piece is completed rather than waiting to show everything at once.

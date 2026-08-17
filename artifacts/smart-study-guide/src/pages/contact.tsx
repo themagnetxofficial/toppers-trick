@@ -15,19 +15,25 @@ export default function ContactPage() {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
+  const [error, setError] = useState("");
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSending(true);
-    // Open a mailto link as a fallback since no email service is configured yet
-    const mailto = `mailto:support@smartstudy.app?subject=${encodeURIComponent(form.subject)}&body=${encodeURIComponent(
-      `Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`
-    )}`;
-    window.location.href = mailto;
-    // Show success state after a short delay
-    setTimeout(() => {
+    setError("");
+    try {
+      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${base}/api/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error("Failed to send");
       setSubmitted(true);
-      setSending(false);
-    }, 500);
+    } catch {
+      setError("Failed to send message. Please email us directly at support@smartstudy.app");
+    }
+    setSending(false);
   }
 
   return (
@@ -134,10 +140,7 @@ export default function ContactPage() {
                 <Button type="submit" disabled={sending} className="w-full h-11 rounded-xl font-bold">
                   {sending ? "Sending…" : "Send Message"}
                 </Button>
-                <p className="text-xs text-muted-foreground text-center">
-                  Your message will open in your email client. Alternatively, email us directly at{" "}
-                  <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>.
-                </p>
+                {error && <p className="text-xs text-destructive text-center">{error}</p>}
               </form>
             )}
           </div>
