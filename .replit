@@ -38,3 +38,8 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+ADMIN_CLERK_USER_ID = "user_3HDuH4eVIX1SEs6hYw4bqyix9xX"
