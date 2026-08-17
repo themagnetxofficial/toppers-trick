@@ -3,9 +3,40 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BookOpen, Coins, FileText, PlusCircle, ArrowRight, Clock, AlertTriangle } from "lucide-react";
+import { BookOpen, Coins, FileText, PlusCircle, ArrowRight, Clock, AlertTriangle, Copy, Check } from "lucide-react";
 import { useGetMyStats, useGetMyCredits, useListAnalyses } from "@workspace/api-client-react";
 import { formatDistanceToNow } from "date-fns";
+import { useUser } from "@clerk/react";
+import { useState } from "react";
+
+function ClerkIdBanner() {
+  const { user } = useUser();
+  const [copied, setCopied] = useState(false);
+
+  if (!user) return null;
+
+  const copy = () => {
+    navigator.clipboard.writeText(user.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-amber-900 mb-0.5">🔑 Your Clerk User ID (for admin setup)</p>
+        <p className="font-mono text-amber-800 truncate">{user.id}</p>
+      </div>
+      <button
+        onClick={copy}
+        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-amber-800 font-medium hover:bg-amber-50 transition-colors"
+      >
+        {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+        {copied ? "Copied!" : "Copy"}
+      </button>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useGetMyStats();
@@ -14,6 +45,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <ClerkIdBanner />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold font-serif text-foreground">Welcome back!</h1>
