@@ -10,6 +10,8 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 import { logger } from "./lib/logger";
 import router from "./routes";
+import { join } from "path";
+import { existsSync } from "fs";
 
 const app = express();
 
@@ -49,5 +51,22 @@ app.use(
 );
 
 app.use("/api", router);
+
+// Serve the built React frontend in production.
+// The frontend is built to artifacts/smart-study-guide/dist/public/ by vite build.
+// This must come AFTER the API router so /api/* routes are not intercepted.
+if (process.env.NODE_ENV === "production") {
+  const frontendDist = join(process.cwd(), "artifacts/smart-study-guide/dist/public");
+  if (existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    // Catch-all: send index.html for any non-API route so client-side routing works
+    app.get("*", (_req, res) => {
+      res.sendFile(join(frontendDist, "index.html"));
+    });
+    logger.info({ frontendDist }, "Serving frontend static files");
+  } else {
+    logger.warn({ frontendDist }, "Frontend dist not found — run vite build first");
+  }
+}
 
 export default app;
