@@ -52,14 +52,14 @@ export const useRetryAnalysis = <TError = ErrorType<void>, TContext = unknown>(
   return useMutation({
     mutationFn,
     // Always invalidate relevant queries first, then invoke the caller's handler.
-    onSuccess: async (data, variables, context) => {
+    onSuccess: async (data, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: getGetAnalysisQueryKey(variables.id),
       });
       await queryClient.invalidateQueries({
         queryKey: getListAnalysesQueryKey(),
       });
-      await userOnSuccess?.(data, variables, context);
+      await userOnSuccess?.(data, variables, onMutateResult, context);
     },
     ...restMutationOptions,
   });
