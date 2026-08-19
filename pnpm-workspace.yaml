@@ -71,8 +71,10 @@ autoInstallPeers: false
 
 onlyBuiltDependencies:
   - '@swc/core'
+  - '@clerk/shared'
   - esbuild
   - msw
+  - tesseract.js
   - unrs-resolver
 
 overrides:
