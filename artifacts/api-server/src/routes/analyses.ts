@@ -30,6 +30,14 @@ import {
   DATABASE_UNAVAILABLE_MESSAGE,
   isDatabaseUnavailable,
 } from "../lib/serviceAvailability";
+import {
+  AnalysisProcessingError,
+  AnalysisFailureStage,
+  getAnalysisFailureMessage,
+  getAnalysisFailureMessageWithRefund,
+  isSafeAnalysisFailureMessage,
+} from "../lib/analysisFailure";
+import { inspectStorageDirectory, inspectStoredFile } from "../lib/fileStorage";
 
 const router: IRouter = Router();
 
@@ -189,7 +197,7 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
   }
 });
 
-async function processAnalysis(
+export async function processAnalysis(
   analysisId: number,
   params: {
     category: string;
@@ -201,16 +209,55 @@ async function processAnalysis(
   }
 ) {
   let creditRefunded = false;
-  try {
-    const { text: extractedText, yearLabels } = await extractTextFromFilesWithLabels(params.filePaths);
+  let stage: AnalysisFailureStage = "file_unavailable";
 
-    if (!extractedText || extractedText.length < 50) {
-      throw new Error(
-        "Could not extract readable text from the uploaded files. Please ensure the files are not password-protected."
+  try {
+    const storageDirectory = inspectStorageDirectory(getUploadsDir());
+    const inputFiles = params.filePaths.map(inspectStoredFile);
+    logger.info(
+      {
+        analysisId,
+        storageDirectory,
+        inputFiles,
+      },
+      "Checking analysis input files before text extraction",
+    );
+
+    const missingFile = inputFiles.find((file) => file.exists === false);
+    if (missingFile) {
+      throw new AnalysisProcessingError(
+        "file_missing",
+        `Input file is missing at ${missingFile.absolutePath}`,
+      );
+    }
+
+    const unavailableFile = inputFiles.find(
+      (file) =>
+        file.exists !== true ||
+        !isInsideUploadsDir(file.absolutePath) ||
+        !file.isFile ||
+        !file.readable,
+    );
+    if (unavailableFile) {
+      throw new AnalysisProcessingError(
+        "file_unavailable",
+        `Input file is unavailable at ${unavailableFile.absolutePath}`,
+      );
+    }
+
+    stage = "text_extraction";
+    const { text: extractedText, yearLabels, extractedCharacterCount } =
+      await extractTextFromFilesWithLabels(params.filePaths);
+
+    if (!extractedText || extractedCharacterCount < 50) {
+      throw new AnalysisProcessingError(
+        "text_extraction",
+        `Only ${extractedCharacterCount} readable characters were extracted from ${params.filePaths.length} input file(s)`,
       );
     }
 
     // Call AI
+    stage = "ai_analysis";
     const { result, inputTokens, outputTokens } = await analyzeWithAI({
       category: params.category,
       classOrCourse: params.classOrCourse,
@@ -221,6 +268,7 @@ async function processAnalysis(
     });
 
     // Log token usage
+    stage = "persistence";
     await db.insert(tokenUsageLogsTable).values({
       analysisId,
       inputTokens,
@@ -235,6 +283,7 @@ async function processAnalysis(
       .where(eq(analysesTable.id, analysisId));
 
     // Generate PDF
+    stage = "pdf_generation";
     const pdfFileName = await generateStudyGuidePdf({
       analysisId,
       subject: params.subject,
@@ -244,6 +293,7 @@ async function processAnalysis(
     });
 
     // Mark as completed
+    stage = "persistence";
     await db
       .update(analysesTable)
       .set({
@@ -265,19 +315,82 @@ async function processAnalysis(
       }
     }
   } catch (err) {
-    logger.error({ err, analysisId }, "Analysis failed");
+    const failureStage =
+      err instanceof AnalysisProcessingError ? err.stage : stage;
+    logger.error(
+      { err, analysisId, stage: failureStage },
+      "Analysis failed",
+    );
 
-    const errorMessage = err instanceof Error ? err.message : "Analysis failed";
+    const pendingRefundMessage = getAnalysisFailureMessageWithRefund(
+      failureStage,
+      "pending",
+    );
+    let failureStatePersisted = false;
 
-    await db
-      .update(analysesTable)
-      .set({ status: "failed", errorMessage })
-      .where(eq(analysesTable.id, analysisId));
+    // Persist a terminal state before attempting the refund, so a temporary
+    // refund problem cannot leave students looking at a perpetual spinner.
+    try {
+      await db
+        .update(analysesTable)
+        .set({ status: "failed", errorMessage: pendingRefundMessage })
+        .where(eq(analysesTable.id, analysisId));
+      failureStatePersisted = true;
+    } catch (persistenceErr) {
+      logger.error(
+        { err: persistenceErr, analysisId, stage: failureStage },
+        "Could not record terminal analysis failure",
+      );
+    }
 
-    // Atomically refund the credit to the oldest non-full non-expired batch
+    // Atomically refund the credit to the oldest non-full non-expired batch.
+    // Do not tell the student a refund succeeded until this operation commits.
     if (!creditRefunded) {
-      await refundOneCredit(params.userId);
-      creditRefunded = true;
+      try {
+        await refundOneCredit(params.userId);
+        creditRefunded = true;
+      } catch (refundErr) {
+        logger.error(
+          { err: refundErr, analysisId, stage: failureStage },
+          "Could not refund failed analysis credit",
+        );
+      }
+    }
+
+    if (failureStatePersisted && creditRefunded) {
+      try {
+        await db
+          .update(analysesTable)
+          .set({
+            errorMessage: getAnalysisFailureMessageWithRefund(
+              failureStage,
+              "confirmed",
+            ),
+          })
+          .where(eq(analysesTable.id, analysisId));
+      } catch (confirmationErr) {
+        logger.warn(
+          { err: confirmationErr, analysisId, stage: failureStage },
+          "Refund succeeded but its confirmation could not be saved",
+        );
+      }
+    } else if (failureStatePersisted) {
+      try {
+        await db
+          .update(analysesTable)
+          .set({
+            errorMessage: getAnalysisFailureMessageWithRefund(
+              failureStage,
+              "unconfirmed",
+            ),
+          })
+          .where(eq(analysesTable.id, analysisId));
+      } catch (refundFailureUpdateErr) {
+        logger.error(
+          { err: refundFailureUpdateErr, analysisId, stage: failureStage },
+          "Could not record unconfirmed credit refund",
+        );
+      }
     }
   }
 }
@@ -314,9 +427,11 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
       yearsAnalyzed: analysis.yearsAnalyzed,
       status: analysis.status,
       errorMessage:
-        analysis.status === "failed"
-          ? "Analysis could not be completed. Your credit has been refunded."
-          : null,
+        analysis.status === "failed" && isSafeAnalysisFailureMessage(analysis.errorMessage)
+          ? analysis.errorMessage
+          : analysis.status === "failed"
+            ? getAnalysisFailureMessage("unknown")
+            : null,
       aiResponse: analysis.aiResponseJson ?? undefined,
       hasPdf: !!analysis.pdfFilePath,
       createdAt: analysis.createdAt,

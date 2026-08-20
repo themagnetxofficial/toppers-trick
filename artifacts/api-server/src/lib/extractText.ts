@@ -123,7 +123,7 @@ export async function extractTextFromFiles(filePaths: string[]): Promise<string>
  */
 export async function extractTextFromFilesWithLabels(
   filePaths: string[]
-): Promise<{ text: string; yearLabels: string[] }> {
+): Promise<{ text: string; yearLabels: string[]; extractedCharacterCount: number }> {
   const texts = await Promise.all(filePaths.map((fp) => extractTextFromFile(fp)));
   const yearLabels = filePaths.map((_, i) => `Paper ${i + 1}`);
   const labeled = texts.map(
@@ -132,5 +132,6 @@ export async function extractTextFromFilesWithLabels(
   return {
     text: labeled.join("\n\n"),
     yearLabels,
+    extractedCharacterCount: texts.reduce((total, text) => total + text.trim().length, 0),
   };
 }

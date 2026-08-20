@@ -5,6 +5,7 @@ import fs from "fs";
 import { requireAuth } from "../lib/auth";
 import { getUploadsDir } from "../lib/pdfService";
 import { logger } from "../lib/logger";
+import { inspectStorageDirectory, inspectStoredFile } from "../lib/fileStorage";
 
 const router: IRouter = Router();
 
@@ -55,7 +56,39 @@ router.post(
     }
 
     const filePaths = files.map((f) => f.path);
-    logger.info({ count: files.length }, "Files uploaded successfully");
+    const directory = inspectStorageDirectory(getUploadsDir());
+    const storedFiles = filePaths.map(inspectStoredFile);
+    const failedVerification = storedFiles.some(
+      (file) => !file.exists || !file.isFile || !file.readable,
+    );
+
+    logger.info(
+      {
+        count: files.length,
+        storageDirectory: directory,
+        storedFiles,
+      },
+      "Upload files written and verified on disk",
+    );
+
+    if (failedVerification) {
+      for (const filePath of filePaths) {
+        try {
+          fs.rmSync(filePath, { force: true });
+        } catch {
+          // The failure is already captured by the diagnostic log above.
+        }
+      }
+
+      logger.error(
+        { storageDirectory: directory, storedFiles },
+        "Upload verification failed after Multer wrote files",
+      );
+      res.status(500).json({
+        error: "The uploaded files could not be saved on the analysis server. Please try again.",
+      });
+      return;
+    }
 
     res.json({ filePaths });
   }

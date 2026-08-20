@@ -239,6 +239,7 @@ vi.mock("../lib/extractText", () => ({
   extractTextFromFilesWithLabels: vi.fn().mockResolvedValue({
     text: "--- Year: Paper 1 ---\n\nQuestion 1: Describe Newton's laws (10 marks)",
     yearLabels: ["Paper 1"],
+    extractedCharacterCount: 59,
   }),
 }));
 
@@ -246,6 +247,10 @@ vi.mock("../lib/extractText", () => ({
 // Import the app AFTER all mocks are registered
 // ---------------------------------------------------------------------------
 import app from "../app";
+import { processAnalysis } from "../routes/analyses";
+import {
+  getAnalysisFailureMessageWithRefund,
+} from "../lib/analysisFailure";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -435,6 +440,58 @@ describe("POST /api/analyses", () => {
 
 // ---------------------------------------------------------------------------
 
+describe("background analysis diagnostics", () => {
+  it("records a specific retryable message when an uploaded file disappears", async () => {
+    const { db } = await import("@workspace/db");
+    vi.mocked(db.update).mockClear();
+
+    await processAnalysis(99, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [path.join(uploadsDir, "no-longer-present.pdf")],
+      userId: 1,
+    });
+
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(2);
+    const updateChain = vi.mocked(db.update).mock.results[0]?.value as {
+      set: ReturnType<typeof vi.fn>;
+    };
+    expect(updateChain.set).toHaveBeenCalledWith({
+      status: "failed",
+      errorMessage: getAnalysisFailureMessageWithRefund("file_missing", "pending"),
+    });
+  });
+
+  it("records an accurate message when the automatic refund cannot complete", async () => {
+    const { db } = await import("@workspace/db");
+    vi.mocked(db.update).mockClear();
+    vi.mocked(db.execute).mockRejectedValueOnce(
+      new Error("database connection lost while refunding"),
+    );
+
+    await processAnalysis(100, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [path.join(uploadsDir, "missing-during-refund-test.pdf")],
+      userId: 1,
+    });
+
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(2);
+    const refundFailureUpdate = vi.mocked(db.update).mock.results[1]?.value as {
+      set: ReturnType<typeof vi.fn>;
+    };
+    expect(refundFailureUpdate.set).toHaveBeenCalledWith({
+      errorMessage: getAnalysisFailureMessageWithRefund("file_missing", "unconfirmed"),
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+
 describe("GET /api/analyses/:id", () => {
   beforeEach(() => {
     // Default: return a processing analysis
@@ -500,6 +557,20 @@ describe("GET /api/analyses/:id", () => {
     expect(res.body.hasPdf).toBe(true);
     expect(Array.isArray(res.body.aiResponse?.chapters)).toBe(true);
     expect(res.body.aiResponse.chapters[0].chapter_name).toBe("Mechanics");
+  });
+
+  it("returns an allowlisted file-storage failure message", async () => {
+    dbState.analysis = {
+      ...dbState.analysis!,
+      status: "failed",
+      errorMessage: getAnalysisFailureMessageWithRefund("file_missing", "confirmed"),
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+    expect(res.status).toBe(200);
+    expect(res.body.errorMessage).toBe(
+      getAnalysisFailureMessageWithRefund("file_missing", "confirmed"),
+    );
   });
 });
 
