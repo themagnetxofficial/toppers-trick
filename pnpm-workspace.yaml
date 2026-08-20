@@ -69,13 +69,13 @@ catalog:
 
 autoInstallPeers: false
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - '@clerk/shared'
-  - esbuild
-  - msw
-  - tesseract.js
-  - unrs-resolver
+allowBuilds:
+  '@swc/core': true
+  '@clerk/shared': true
+  esbuild: true
+  msw: true
+  tesseract.js: true
+  unrs-resolver: true
 
 overrides:
   # replit uses linux-x64 only, we can exclude all other platforms
