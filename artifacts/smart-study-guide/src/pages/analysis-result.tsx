@@ -376,7 +376,7 @@ export default function AnalysisResultPage() {
         </div>
 
         <div className="space-y-4">
-          {allTopics.map((topic, index) => {
+          {allTopics.length > 0 ? allTopics.map((topic, index) => {
             const priority = getPriority(topic);
             const frequency = getFrequency(topic);
             const confidence = topic.confidence_level;
@@ -519,7 +519,19 @@ export default function AnalysisResultPage() {
                 </CardContent>
               </Card>
             );
-          })}
+          }) : (
+            <Card className="border-amber-300 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <CardContent className="p-6 flex gap-4">
+                <AlertTriangle className="w-6 h-6 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div>
+                  <h3 className="font-bold text-foreground">Topic details are unavailable</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    This saved analysis did not contain a topic list. Please create a new analysis with the same papers; new analyses now stop safely instead of showing an incomplete guide.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
