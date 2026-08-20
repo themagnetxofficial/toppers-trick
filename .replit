@@ -26,7 +26,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm --filter @workspace/api-server test"
+args = "corepack pnpm@11.17.0 --filter @workspace/api-server test"
 
 [workflows.workflow.metadata]
 isValidation = true
