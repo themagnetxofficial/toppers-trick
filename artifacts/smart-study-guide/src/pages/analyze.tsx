@@ -94,10 +94,9 @@ export default function AnalyzePage() {
       setLocation(`/analyses/${analysisData.id}`);
     } else if (analysisData?.status === 'failed') {
       const errMsg = (analysisData as any).errorMessage;
-      const isExtractionError = errMsg?.toLowerCase().includes("extract") || errMsg?.toLowerCase().includes("text");
       const message =
-        isExtractionError
-          ? "Paper mein text nahi mila. Please make sure the PDF is not scanned/image-only, or try uploading a clearer image."
+        typeof errMsg === "string" && errMsg.trim()
+          ? errMsg
           : "Analysis failed. Your files are still selected, so please try again.";
       setSubmissionError(message);
       toast.error(message);

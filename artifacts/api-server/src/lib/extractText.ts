@@ -3,9 +3,12 @@ import os from "os";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { PDFParse } from "pdf-parse";
 import { logger } from "./logger";
+import { runInOcrQueue } from "./ocrQueue";
 
 const execFileAsync = promisify(execFile);
+const MINIMUM_TEXT_LENGTH = 100;
 
 // ---------------------------------------------------------------------------
 // Text-based PDF: use pdftotext (poppler) — fast, no API issues
@@ -20,67 +23,155 @@ async function extractTextViaPdfToText(filePath: string): Promise<string> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Scanned PDF: render each page to PPM with pdftoppm, then OCR with tesseract
-// ---------------------------------------------------------------------------
-async function extractTextViaOcrFromPdf(filePath: string): Promise<string> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "smartstudy-"));
+/**
+ * pdf-parse packages a Node-compatible PDF renderer, so this path continues
+ * to work on hosts that do not provide Poppler command-line tools.
+ */
+async function extractTextViaPdfParse(filePath: string): Promise<string> {
+  let parser: PDFParse | null = null;
+
   try {
-    // Render all pages at 200 dpi (good balance of speed vs accuracy for A4 scans)
-    await execFileAsync("pdftoppm", ["-r", "200", filePath, path.join(tmpDir, "page")]);
+    parser = new PDFParse({ data: fs.readFileSync(filePath) });
+    const result = await parser.getText();
+    return result.text.trim();
+  } catch (err) {
+    logger.warn({ err, filePath }, "pdf-parse text extraction failed");
+    return "";
+  } finally {
+    await parser?.destroy().catch(() => undefined);
+  }
+}
 
-    const pages = fs
-      .readdirSync(tmpDir)
-      .filter((f) => f.endsWith(".ppm"))
-      .sort(); // natural page order
+async function recognizeImagesWithOcr(
+  images: Array<string | Buffer>,
+  filePath: string,
+): Promise<string> {
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("eng");
 
-    if (pages.length === 0) {
-      logger.warn({ filePath }, "pdftoppm produced no pages");
-      return "";
+  try {
+    const texts: string[] = [];
+    for (const image of images) {
+      const { data } = await worker.recognize(image);
+      if (data.text?.trim()) texts.push(data.text.trim());
     }
+    return texts.join("\n\n");
+  } finally {
+    await worker.terminate();
+  }
+}
 
-    logger.info({ filePath, pages: pages.length }, "Running OCR on scanned PDF pages");
+async function recognizeRenderedPdfPages(
+  parser: PDFParse,
+  pageCount: number,
+  filePath: string,
+): Promise<string> {
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("eng");
 
-    // Run tesseract on each page sequentially to avoid worker memory spikes
-    const { createWorker } = await import("tesseract.js");
-    const worker = await createWorker("eng");
+  try {
     const texts: string[] = [];
 
-    for (const page of pages) {
-      const imgPath = path.join(tmpDir, page);
-      const { data } = await worker.recognize(imgPath);
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      const screenshot = await parser.getScreenshot({
+        partial: [pageNumber],
+        scale: 1.8,
+      });
+      const page = screenshot.pages[0]?.data;
+
+      if (!(page instanceof Uint8Array)) {
+        logger.warn({ filePath, pageNumber }, "PDF page could not be rendered for OCR");
+        continue;
+      }
+
+      const { data } = await worker.recognize(Buffer.from(page));
       if (data.text?.trim()) texts.push(data.text.trim());
     }
 
-    await worker.terminate();
     return texts.join("\n\n");
-  } catch (err) {
-    logger.error({ err, filePath }, "OCR from scanned PDF failed");
-    return "";
   } finally {
-    // Clean up temp page images
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
+    await worker.terminate();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Scanned PDF: render pages with pdf-parse, then OCR with tesseract.
+// This has no dependency on Hostinger-provided system binaries.
+// ---------------------------------------------------------------------------
+async function extractTextViaPdfParseOcr(filePath: string): Promise<string> {
+  return runInOcrQueue(async () => {
+    let parser: PDFParse | null = null;
+
+    try {
+      parser = new PDFParse({ data: fs.readFileSync(filePath) });
+      const info = await parser.getInfo();
+      logger.info(
+        {
+          filePath,
+          pages: info.total,
+        },
+        "Running OCR on PDF pages rendered by pdf-parse",
+      );
+      return await recognizeRenderedPdfPages(parser, info.total, filePath);
+    } catch (err) {
+      logger.error({ err, filePath }, "OCR from pdf-parse PDF pages failed");
+      return "";
+    } finally {
+      await parser?.destroy().catch(() => undefined);
+    }
+  });
+}
+
+// Legacy fallback for hosts where the bundled renderer is unavailable.
+async function extractTextViaPopplerOcr(filePath: string): Promise<string> {
+  return runInOcrQueue(async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "smartstudy-"));
+    try {
+      // Render all pages at 200 dpi (good balance of speed vs accuracy for A4 scans)
+      await execFileAsync("pdftoppm", ["-r", "200", filePath, path.join(tmpDir, "page")]);
+
+      const pages = fs
+        .readdirSync(tmpDir)
+        .filter((f) => f.endsWith(".ppm"))
+        .sort(); // natural page order
+
+      if (pages.length === 0) {
+        logger.warn({ filePath }, "pdftoppm produced no pages");
+        return "";
+      }
+
+      logger.info({ filePath, pages: pages.length }, "Running OCR on scanned PDF pages");
+
+      return await recognizeImagesWithOcr(
+        pages.map((page) => path.join(tmpDir, page)),
+        filePath,
+      );
+    } catch (err) {
+      logger.error({ err, filePath }, "OCR from scanned PDF failed");
+      return "";
+    } finally {
+      // Clean up temp page images
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Image file: OCR directly with tesseract
 // ---------------------------------------------------------------------------
 async function extractFromImage(filePath: string): Promise<string> {
-  try {
-    const { createWorker } = await import("tesseract.js");
-    const worker = await createWorker("eng");
-    const { data } = await worker.recognize(filePath);
-    await worker.terminate();
-    return data.text?.trim() ?? "";
-  } catch (err) {
-    logger.error({ err, filePath }, "OCR extraction from image failed");
-    return "";
-  }
+  return runInOcrQueue(async () => {
+    try {
+      return await recognizeImagesWithOcr([filePath], filePath);
+    } catch (err) {
+      logger.error({ err, filePath }, "OCR extraction from image failed");
+      return "";
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -91,15 +182,25 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
 
   if (ext === ".pdf") {
     // Try fast text extraction first
-    const text = await extractTextViaPdfToText(filePath);
+    const popplerText = await extractTextViaPdfToText(filePath);
 
-    // Heuristic: if we got less than 100 meaningful chars it's likely a scanned PDF
-    if (text.length < 100) {
+    // pdf-parse is a portable fallback for hosts without the Poppler binaries.
+    const parsedText =
+      popplerText.length < MINIMUM_TEXT_LENGTH
+        ? await extractTextViaPdfParse(filePath)
+        : "";
+    const text =
+      parsedText.length > popplerText.length ? parsedText : popplerText;
+
+    // If neither text parser yields enough content, treat it as a scan and OCR
+    // its rendered pages. The Poppler renderer remains a final backup only.
+    if (text.length < MINIMUM_TEXT_LENGTH) {
       logger.info(
         { filePath, textLen: text.length },
         "PDF has little/no selectable text — falling back to OCR"
       );
-      return extractTextViaOcrFromPdf(filePath);
+      const ocrText = await extractTextViaPdfParseOcr(filePath);
+      return ocrText || extractTextViaPopplerOcr(filePath);
     }
 
     return text;
@@ -113,7 +214,10 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
 }
 
 export async function extractTextFromFiles(filePaths: string[]): Promise<string> {
-  const texts = await Promise.all(filePaths.map((fp) => extractTextFromFile(fp)));
+  const texts: string[] = [];
+  for (const filePath of filePaths) {
+    texts.push(await extractTextFromFile(filePath));
+  }
   return texts.filter(Boolean).join("\n\n---\n\n");
 }
 
@@ -124,7 +228,10 @@ export async function extractTextFromFiles(filePaths: string[]): Promise<string>
 export async function extractTextFromFilesWithLabels(
   filePaths: string[]
 ): Promise<{ text: string; yearLabels: string[]; extractedCharacterCount: number }> {
-  const texts = await Promise.all(filePaths.map((fp) => extractTextFromFile(fp)));
+  const texts: string[] = [];
+  for (const filePath of filePaths) {
+    texts.push(await extractTextFromFile(filePath));
+  }
   const yearLabels = filePaths.map((_, i) => `Paper ${i + 1}`);
   const labeled = texts.map(
     (t, i) => `--- Year: Paper ${i + 1} ---\n\n${t.trim() || "(No text extracted from this file)"}`
