@@ -3,6 +3,10 @@ import { getAuth } from "@clerk/express";
 import { db, usersTable, creditsTable, creditBatchesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import {
+  DATABASE_UNAVAILABLE_MESSAGE,
+  isDatabaseUnavailable,
+} from "./serviceAvailability";
 
 // Extend Request type to include userId
 declare global {
@@ -69,6 +73,11 @@ export const requireAuth = async (
     next();
   } catch (err) {
     logger.error({ err }, "Error in requireAuth JIT provisioning");
-    res.status(500).json({ error: "Internal server error" });
+    if (isDatabaseUnavailable(err)) {
+      res.status(503).json({ error: DATABASE_UNAVAILABLE_MESSAGE });
+      return;
+    }
+
+    res.status(500).json({ error: "Unable to verify your account right now." });
   }
 };

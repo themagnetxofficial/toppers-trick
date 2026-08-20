@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +18,34 @@ const HINGLISH_MESSAGES = [
   "Bas thoda aur intezaar... ⏳"
 ];
 
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+const API_BASE_URL = `${basePath}/api`;
+
+function getServerErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === "object") {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const message = (data as { error?: unknown }).error;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+  }
+
+  return fallback;
+}
+
+async function getUploadErrorMessage(response: Response): Promise<string> {
+  try {
+    const data = (await response.json()) as { error?: unknown };
+    if (typeof data.error === "string" && data.error.trim()) return data.error;
+  } catch {
+    // The server may not have returned JSON. Keep the message safe and useful.
+  }
+
+  return response.status === 503
+    ? "Our service is temporarily unavailable. Your files are still selected, so please try again in a few minutes."
+    : "We couldn't upload your papers. Your selected files are still here, so please try again.";
+}
+
 export default function AnalyzePage() {
   const [, setLocation] = useLocation();
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -31,6 +59,7 @@ export default function AnalyzePage() {
   // Step 2 State
   const [files, setFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   
   // Step 3 State
   const [analysisId, setAnalysisId] = useState<number | null>(null);
@@ -66,11 +95,12 @@ export default function AnalyzePage() {
     } else if (analysisData?.status === 'failed') {
       const errMsg = (analysisData as any).errorMessage;
       const isExtractionError = errMsg?.toLowerCase().includes("extract") || errMsg?.toLowerCase().includes("text");
-      toast.error(
+      const message =
         isExtractionError
           ? "Paper mein text nahi mila. Please make sure the PDF is not scanned/image-only, or try uploading a clearer image."
-          : "Analysis failed. Please try again."
-      );
+          : "Analysis failed. Your files are still selected, so please try again.";
+      setSubmissionError(message);
+      toast.error(message);
       setStep(2); // Go back to upload step, not step 1 — user keeps their subject details
       setAnalysisId(null);
     }
@@ -128,21 +158,44 @@ export default function AnalyzePage() {
     }
 
     setIsUploading(true);
+    setSubmissionError(null);
+
+    let filePaths: string[];
     try {
       const formData = new FormData();
       files.forEach(file => formData.append("files", file));
 
-      const uploadRes = await fetch("/api/upload", {
+      const uploadRes = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
+        credentials: "include",
         body: formData
       });
 
-      if (!uploadRes.ok) throw new Error("Upload failed");
-      const { filePaths } = await uploadRes.json();
+      if (!uploadRes.ok) {
+        const message = await getUploadErrorMessage(uploadRes);
+        setSubmissionError(message);
+        toast.error(message);
+        return;
+      }
 
-      setStep(3); // Show processing UI immediately
-      
-      createAnalysis.mutate({
+      const uploadData = await uploadRes.json();
+      if (!Array.isArray(uploadData.filePaths) || uploadData.filePaths.length === 0) {
+        throw new Error("The upload did not return any files.");
+      }
+      filePaths = uploadData.filePaths;
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message === "The upload did not return any files."
+          ? "We couldn't confirm your uploaded files. Please try again."
+          : "We couldn't upload your papers. Your selected files are still here, so please try again.";
+      setSubmissionError(message);
+      toast.error(message);
+      setIsUploading(false);
+      return;
+    }
+
+    try {
+      const analysis = await createAnalysis.mutateAsync({
         data: {
           category,
           classOrCourse: classOrCourse.trim() || undefined,
@@ -150,20 +203,16 @@ export default function AnalyzePage() {
           subject: subject.trim(),
           filePaths
         }
-      }, {
-        onSuccess: (data) => {
-          setAnalysisId(data.id);
-        },
-        onError: (err: any) => {
-          const msg = err?.response?.data?.error || err?.message || "Failed to start analysis. Please try again.";
-          toast.error(msg);
-          setStep(2);
-        }
       });
-      
+      setAnalysisId(analysis.id);
+      setStep(3);
     } catch (error) {
-      toast.error("Failed to upload files. Please try again.");
-      setStep(2);
+      const message = getServerErrorMessage(
+        error,
+        "We couldn't start the analysis. Your files are still selected, so please try again.",
+      );
+      setSubmissionError(message);
+      toast.error(message);
     } finally {
       setIsUploading(false);
     }
@@ -284,7 +333,7 @@ export default function AnalyzePage() {
         <Card className="shadow-lg border-border animate-in fade-in slide-in-from-right-4 duration-500">
           <CardContent className="p-6 sm:p-8 space-y-6">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" onClick={() => setStep(1)} className="shrink-0 -ml-2 text-muted-foreground hover:text-foreground">
+                <Button aria-label="Back to study details" variant="ghost" size="icon" onClick={() => setStep(1)} className="shrink-0 -ml-2 text-muted-foreground hover:text-foreground">
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <div>
@@ -292,6 +341,15 @@ export default function AnalyzePage() {
                 <p className="text-muted-foreground">Upload 1 to 5 previous year question papers.</p>
               </div>
             </div>
+
+            {submissionError && (
+              <div
+                role="alert"
+                className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+              >
+                {submissionError}
+              </div>
+            )}
 
             <div 
               className={cn(

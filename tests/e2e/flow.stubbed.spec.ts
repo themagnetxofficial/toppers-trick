@@ -80,11 +80,23 @@ const MOCK_COMPLETED = {
 // ---------------------------------------------------------------------------
 
 /** Wire all /api/* page.route() stubs. */
-async function wireApiStubs(page: import("@playwright/test").Page) {
+async function wireApiStubs(
+  page: import("@playwright/test").Page,
+  failures: { upload?: boolean; analysisStart?: boolean } = {},
+) {
   let pollCount = 0;
 
   await page.route("**/api/upload", (route) => {
     if (route.request().method() !== "POST") return route.continue();
+    if (failures.upload) {
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "Our service is temporarily unavailable. Please try again in a few minutes.",
+        }),
+      });
+    }
     return route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -94,12 +106,36 @@ async function wireApiStubs(page: import("@playwright/test").Page) {
 
   await page.route("**/api/analyses", (route) => {
     if (route.request().method() !== "POST") return route.continue();
+    if (failures.analysisStart) {
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "Our service is temporarily unavailable. Please try again in a few minutes.",
+        }),
+      });
+    }
     return route.fulfill({
       status: 201,
       contentType: "application/json",
       body: JSON.stringify(MOCK_PROCESSING),
     });
   });
+
+  async function fillAnalysisDetailsAndSelectPaper(
+    page: import("@playwright/test").Page,
+  ) {
+    await page.goto("/analyze");
+    await page.getByLabel(/Class/i).fill("12th Science");
+    await page.getByLabel(/Board/i).fill("CBSE");
+    await page.getByLabel(/Subject Name/i).fill("Physics");
+    await page.getByRole("button", { name: /Next Step/i }).click();
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "physics-2023.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF"),
+    });
+  }
 
   await page.route("**/api/analyses/42", (route) => {
     if (route.request().url().includes("/download")) return route.continue();
@@ -228,4 +264,29 @@ test.describe("Stubbed API — UI contract", () => {
       expect(openedUrl).toMatch(/\/api\/pdf\//);
     },
   );
+
+  test("keeps paper and study details visible when upload fails", async ({ page }) => {
+    await wireApiStubs(page, { upload: true });
+    await fillAnalysisDetailsAndSelectPaper(page);
+
+    await page.getByRole("button", { name: /Analyze Papers/i }).click();
+
+    await expect(page.getByRole("alert")).toContainText(/temporarily unavailable/i);
+    await expect(page.getByText("physics-2023.pdf")).toBeVisible();
+    await page.getByRole("button", { name: "Back to study details" }).click();
+    await expect(page.getByLabel(/Class/i)).toHaveValue("12th Science");
+    await expect(page.getByLabel(/Board/i)).toHaveValue("CBSE");
+    await expect(page.getByLabel(/Subject Name/i)).toHaveValue("Physics");
+  });
+
+  test("stays on upload when the analysis cannot start", async ({ page }) => {
+    await wireApiStubs(page, { analysisStart: true });
+    await fillAnalysisDetailsAndSelectPaper(page);
+
+    await page.getByRole("button", { name: /Analyze Papers/i }).click();
+
+    await expect(page.getByRole("alert")).toContainText(/temporarily unavailable/i);
+    await expect(page.getByText("physics-2023.pdf")).toBeVisible();
+    await expect(page.getByText(/Apna paper upload/i)).toBeVisible();
+  });
 });

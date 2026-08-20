@@ -6,7 +6,12 @@ import {
   tokenUsageLogsTable,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { getAvailableCredits, deductOneCredit, refundOneCredit } from "../lib/credits";
+import {
+  getAvailableCredits,
+  deductOneCredit,
+  deductOneCreditWith,
+  refundOneCredit,
+} from "../lib/credits";
 import { analyzeWithAI } from "../lib/openai";
 import { extractTextFromFilesWithLabels } from "../lib/extractText";
 import { generateStudyGuidePdf, getPdfOutputDir, getUploadsDir } from "../lib/pdfService";
@@ -21,8 +26,47 @@ import {
 import path from "path";
 import fs from "fs";
 import { logger } from "../lib/logger";
+import {
+  DATABASE_UNAVAILABLE_MESSAGE,
+  isDatabaseUnavailable,
+} from "../lib/serviceAvailability";
 
 const router: IRouter = Router();
+
+function isInsideUploadsDir(filePath: string): boolean {
+  const uploadsDir = path.resolve(getUploadsDir());
+  const resolvedPath = path.resolve(filePath);
+  const relativePath = path.relative(uploadsDir, resolvedPath);
+
+  return (
+    relativePath !== "" &&
+    !relativePath.startsWith("..") &&
+    !path.isAbsolute(relativePath)
+  );
+}
+
+function cleanupUnclaimedUploads(filePaths: string[]): void {
+  for (const filePath of filePaths) {
+    if (!isInsideUploadsDir(filePath)) continue;
+
+    try {
+      fs.rmSync(path.resolve(filePath), { force: true });
+    } catch (err) {
+      logger.warn(
+        { err, filePath: path.basename(filePath) },
+        "Could not remove an unclaimed upload",
+      );
+    }
+  }
+}
+
+function getCandidateUploadPaths(body: unknown): string[] {
+  if (!body || typeof body !== "object") return [];
+  const paths = (body as { filePaths?: unknown }).filePaths;
+  return Array.isArray(paths)
+    ? paths.filter((filePath): filePath is string => typeof filePath === "string")
+    : [];
+}
 
 router.get("/analyses", requireAuth, async (req, res): Promise<void> => {
   const analyses = await db
@@ -52,8 +96,10 @@ router.get("/analyses", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
+  const candidateFilePaths = getCandidateUploadPaths(req.body);
   const parsed = CreateAnalysisBody.safeParse(req.body);
   if (!parsed.success) {
+    cleanupUnclaimedUploads(candidateFilePaths);
     res.status(400).json({ error: parsed.error.message });
     return;
   }
@@ -61,75 +107,86 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
   const { category, classOrCourse, boardOrUniversity, subject, filePaths } =
     parsed.data;
 
-  // Pre-check: are any non-expired credits available?
-  const available = await getAvailableCredits(req.userId!);
-  if (available <= 0) {
-    res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
-    return;
-  }
-
   // Validate file paths (security: ensure they're within uploads dir)
-  const UPLOADS_BASE = getUploadsDir();
   for (const fp of filePaths) {
     const resolved = path.resolve(fp);
-    if (!resolved.startsWith(UPLOADS_BASE)) {
+    if (!isInsideUploadsDir(resolved)) {
+      cleanupUnclaimedUploads(filePaths);
       res.status(400).json({ error: "Invalid file path" });
       return;
     }
     if (!fs.existsSync(resolved)) {
+      cleanupUnclaimedUploads(filePaths);
       res.status(400).json({ error: `File not found: ${path.basename(fp)}` });
       return;
     }
   }
 
-  // Atomically deduct 1 credit from the oldest non-expired batch
-  const deducted = await deductOneCredit(req.userId!);
-  if (!deducted) {
-    // Race condition: credits drained between check and deduction
-    res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
-    return;
-  }
+  try {
+    const analysis = await db.transaction(async (tx) => {
+      // Deduction and analysis creation must commit or roll back together.
+      const deducted = await deductOneCreditWith(tx, req.userId!);
+      if (!deducted) return null;
 
-  // Create analysis record
-  const [analysis] = await db
-    .insert(analysesTable)
-    .values({
-      userId: req.userId!,
+      const [createdAnalysis] = await tx
+        .insert(analysesTable)
+        .values({
+          userId: req.userId!,
+          category,
+          classOrCourse: classOrCourse ?? null,
+          boardOrUniversity: boardOrUniversity ?? null,
+          subject,
+          status: "processing",
+          inputFilePaths: filePaths,
+        })
+        .returning();
+
+      return createdAnalysis;
+    });
+
+    if (!analysis) {
+      cleanupUnclaimedUploads(filePaths);
+      res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
+      return;
+    }
+
+    // Respond immediately, process async
+    res.status(201).json(
+      GetAnalysisResponse.parse({
+        id: analysis.id,
+        category: analysis.category,
+        classOrCourse: analysis.classOrCourse,
+        boardOrUniversity: analysis.boardOrUniversity,
+        subject: analysis.subject,
+        yearsAnalyzed: analysis.yearsAnalyzed,
+        status: analysis.status,
+        hasPdf: false,
+        createdAt: analysis.createdAt,
+      })
+    );
+
+    // Background processing
+    processAnalysis(analysis.id, {
       category,
-      classOrCourse: classOrCourse ?? null,
-      boardOrUniversity: boardOrUniversity ?? null,
+      classOrCourse: classOrCourse ?? "",
+      boardOrUniversity: boardOrUniversity ?? "",
       subject,
-      status: "processing",
-      inputFilePaths: filePaths,
-    })
-    .returning();
+      filePaths,
+      userId: req.userId!,
+    }).catch((err) => {
+      logger.error({ err, analysisId: analysis.id }, "Background analysis processing failed");
+    });
+  } catch (err) {
+    logger.error({ err }, "Could not start analysis");
+    cleanupUnclaimedUploads(filePaths);
 
-  // Respond immediately, process async
-  res.status(201).json(
-    GetAnalysisResponse.parse({
-      id: analysis.id,
-      category: analysis.category,
-      classOrCourse: analysis.classOrCourse,
-      boardOrUniversity: analysis.boardOrUniversity,
-      subject: analysis.subject,
-      yearsAnalyzed: analysis.yearsAnalyzed,
-      status: analysis.status,
-      hasPdf: false,
-      createdAt: analysis.createdAt,
-    })
-  );
+    if (isDatabaseUnavailable(err)) {
+      res.status(503).json({ error: DATABASE_UNAVAILABLE_MESSAGE });
+      return;
+    }
 
-  // Background processing
-  processAnalysis(analysis.id, {
-    category,
-    classOrCourse: classOrCourse ?? "",
-    boardOrUniversity: boardOrUniversity ?? "",
-    subject,
-    filePaths,
-    userId: req.userId!,
-  }).catch((err) => {
-    logger.error({ err, analysisId: analysis.id }, "Background analysis processing failed");
-  });
+    res.status(500).json({ error: "Unable to start the analysis. Please try again." });
+  }
 });
 
 async function processAnalysis(

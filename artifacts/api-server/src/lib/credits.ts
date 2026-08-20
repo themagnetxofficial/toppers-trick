@@ -11,7 +11,7 @@
  */
 
 import { db, creditBatchesTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
 
 export interface CreditBatchInfo {
   credits: number;
@@ -29,6 +29,10 @@ export interface CreditInfo {
   /** All non-empty, non-expired batches (for detailed display) */
   batches: CreditBatchInfo[];
 }
+
+type CreditMutationExecutor = {
+  execute(query: SQL): Promise<{ rows: unknown[] }>;
+};
 
 /** Sum of all non-expired credits for a user. */
 export async function getAvailableCredits(userId: number): Promise<number> {
@@ -92,7 +96,18 @@ export async function getCreditInfo(userId: number): Promise<CreditInfo> {
 export async function deductOneCredit(
   userId: number
 ): Promise<{ batchId: number } | null> {
-  const result = await db.execute(sql`
+  return deductOneCreditWith(db, userId);
+}
+
+/**
+ * Transaction-aware version of deductOneCredit. Call this alongside analysis
+ * creation so a failed insert cannot consume a student's credit.
+ */
+export async function deductOneCreditWith(
+  executor: CreditMutationExecutor,
+  userId: number,
+): Promise<{ batchId: number } | null> {
+  const result = await executor.execute(sql`
     WITH target AS (
       SELECT id
       FROM credit_batches
@@ -111,7 +126,7 @@ export async function deductOneCredit(
     RETURNING id
   `);
   const rows = result.rows as { id: number }[];
-  if (!rows.length) return null;
+  if (!rows[0]?.id) return null;
   return { batchId: rows[0].id };
 }
 

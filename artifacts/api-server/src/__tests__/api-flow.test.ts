@@ -147,8 +147,18 @@ vi.mock("@workspace/db", () => {
      */
     execute: vi.fn().mockImplementation(async () => {
       const available = dbState.credits?.creditsRemaining ?? 0;
-      return { rows: [{ total: available, id: 1 }] };
+      return {
+        rows: [
+          {
+            total: available,
+            ...(available > 0 ? { id: 1 } : {}),
+          },
+        ],
+      };
     }),
+    transaction: vi.fn().mockImplementation(async (callback: (tx: unknown) => unknown) =>
+      callback(db)
+    ),
   };
 
   return { db, analysesTable, creditsTable, creditBatchesTable, usersTable, tokenUsageLogsTable };
@@ -268,6 +278,22 @@ describe("POST /api/upload", () => {
     expect(res.status).toBe(401);
   });
 
+  it("returns a safe 503 when account provisioning cannot reach the database", async () => {
+    const { db } = await import("@workspace/db");
+    const uploadedBefore = fs.readdirSync(uploadsDir).sort();
+    vi.mocked(db.select).mockImplementationOnce(() => {
+      throw new Error("getaddrinfo ENOTFOUND db.example.supabase.co");
+    });
+
+    const res = await request(app)
+      .post("/api/upload")
+      .attach("files", makeFakePdf(), "database-down.pdf");
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatch(/temporarily unavailable/i);
+    expect(fs.readdirSync(uploadsDir).sort()).toEqual(uploadedBefore);
+  });
+
   it("returns 400 when no files are sent", async () => {
     const res = await request(app).post("/api/upload");
     expect(res.status).toBe(400);
@@ -353,6 +379,57 @@ describe("POST /api/analyses", () => {
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("processing");
     expect(typeof res.body.id).toBe("number");
+  });
+
+  it("rolls back the credit deduction and cleans up uploads when analysis creation fails", async () => {
+    const fakePath = path.join(uploadsDir, "analysis-start-failure.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+    const { db, analysesTable } = await import("@workspace/db");
+
+    vi.mocked(db.execute).mockClear();
+    vi.mocked(db.transaction).mockClear();
+    const originalInsert = vi.mocked(db.insert).getMockImplementation();
+    vi.mocked(db.insert).mockImplementation((table: unknown) => {
+      if (table === analysesTable) {
+        throw new Error("getaddrinfo ENOTFOUND db.example.supabase.co");
+      }
+      return originalInsert!(table);
+    });
+
+    let res;
+    try {
+      res = await request(app)
+        .post("/api/analyses")
+        .send({
+          category: "school",
+          subject: "Physics",
+          filePaths: [fakePath],
+        });
+    } finally {
+      vi.mocked(db.insert).mockImplementation(originalInsert!);
+    }
+
+    expect(res!.status).toBe(503);
+    expect(res!.body.error).toMatch(/temporarily unavailable/i);
+    expect(fs.existsSync(fakePath)).toBe(false);
+    expect(vi.mocked(db.transaction)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes valid uploads when another submitted file path is invalid", async () => {
+    const validPath = path.join(uploadsDir, "cleanup-valid-upload.pdf");
+    fs.writeFileSync(validPath, "%PDF-1.4 test");
+
+    const res = await request(app)
+      .post("/api/analyses")
+      .send({
+        category: "school",
+        subject: "Physics",
+        filePaths: [validPath, "/not-an-upload/missing.pdf"],
+      });
+
+    expect(res.status).toBe(400);
+    expect(fs.existsSync(validPath)).toBe(false);
   });
 });
 

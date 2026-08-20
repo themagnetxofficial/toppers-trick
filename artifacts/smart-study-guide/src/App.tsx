@@ -4,6 +4,7 @@ import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from 'wouter';
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { setBaseUrl } from "@workspace/api-client-react";
 import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "@/components/ui/toaster";
 import { Shell } from "@/components/layout/shell";
@@ -37,6 +38,7 @@ const clerkPubKey = publishableKeyFromHost(
 // REQUIRED — copy verbatim. Empty in dev, auto-set in prod.
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+setBaseUrl(basePath || null);
 
 // Strip base for Wouter
 function stripBase(path: string): string {
