@@ -3,3 +3,4 @@
 - [Credit expiry architecture](credit-expiry-arch.md) — credit_batches table, FIFO deduction via raw SQL, test mock patterns for db.execute, migration SQL
 - [Branding — ToppersTrick](branding-toppers-trick.md) — app is branded "ToppersTrick"; logo is navy+white T; placement and key gotchas
 - [Admin + Blog routes](admin-blog-routes.md) — db.execute returns {rows:[]} not array; use sq() helper; zod not bundled in api-server (use inline validation); sitemap route must precede :slug
+- [Hostinger build environment](hostinger-build-environment.md) — pnpm is available to install dependencies but absent from the application build command PATH.
