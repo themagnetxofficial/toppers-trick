@@ -1,0 +1,43 @@
+Scope: all 10 workspace projects
+✓ Lockfile passes supply-chain policies (verified 19h ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +674
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 674, reused 674, downloaded 0, added 439
+Progress: resolved 674, reused 674, downloaded 0, added 673
+Progress: resolved 674, reused 674, downloaded 0, added 674, done
+.../node_modules/@clerk/shared postinstall$ node ./scripts/postinstall.mjs
+.../node_modules/tesseract.js postinstall$ opencollective-postinstall || true
+.../esbuild@0.27.3/node_modules/esbuild postinstall$ node install.js
+.../node_modules/@clerk/shared postinstall: Done
+.../node_modules/tesseract.js postinstall: [96m[1mThank you for using tesseract.js![96m[1m
+.../node_modules/tesseract.js postinstall: [0m[96mIf you rely on this package, please consider supporting our open collective:[22m[39m
+.../node_modules/tesseract.js postinstall: > [94mhttps://opencollective.com/tesseractjs/donate[0m
+.../node_modules/tesseract.js postinstall: Done
+.../esbuild@0.27.3/node_modules/esbuild postinstall: node:internal/child_process:1120
+.../esbuild@0.27.3/node_modules/esbuild postinstall:     result.error = new ErrnoException(result.error, 'spawnSync ' + options.file);
+.../esbuild@0.27.3/node_modules/esbuild postinstall:                    ^
+.../esbuild@0.27.3/node_modules/esbuild postinstall: <ref *1> Error: spawnSync /home/u130971241/domains/topperstrick.com/hbuilds/source/repository/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/bin/esbuild EACCES
+.../esbuild@0.27.3/node_modules/esbuild postinstall:     at Object.spawnSync (node:internal/child_process:1120:20)
+.../esbuild@0.27.3/node_modules/esbuild postinstall:     at spawnSync (node:child_process:901:24)
+.../esbuild@0.27.3/node_modules/esbuild postinstall:     at Object.execFileSync (node:child_process:944:15)
+.../esbuild@0.27.3/node_modules/esbuild postinstall:     at validateBinaryVersion (/home/u130971241/domains/topperstrick.com/hbuilds/source/repository/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js:102:28)
+.../esbuild@0.27.3/node_modules/esbuild postinstall:     at /home/u130971241/domains/topperstrick.com/hbuilds/source/repository/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/install.js:287:5 {
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   errno: -13,
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   code: 'EACCES',
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   syscall: 'spawnSync /home/u130971241/domains/topperstrick.com/hbuilds/source/repository/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/bin/esbuild',
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   path: '/home/u130971241/domains/topperstrick.com/hbuilds/source/repository/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild/bin/esbuild',
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   spawnargs: [ '--version' ],
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   error: [Circular *1],
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   status: null,
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   signal: null,
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   output: null,
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   pid: 0,
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   stdout: undefined,
+.../esbuild@0.27.3/node_modules/esbuild postinstall:   stderr: undefined
+.../esbuild@0.27.3/node_modules/esbuild postinstall: }
+.../esbuild@0.27.3/node_modules/esbuild postinstall: Node.js v22.18.0
+.../esbuild@0.27.3/node_modules/esbuild postinstall: Failed
+[ELIFECYCLE] Command failed with exit code 1.
+[31mERROR: Failed to install dependencies[0m
