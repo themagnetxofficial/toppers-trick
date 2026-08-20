@@ -5,6 +5,7 @@
   "packageManager": "pnpm@11.17.0",
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "postinstall": "chmod +x node_modules/.pnpm/esbuild@*/node_modules/esbuild/bin/esbuild node_modules/.pnpm/@esbuild+linux-x64@*/node_modules/@esbuild/linux-x64/bin/esbuild 2>/dev/null || true",
     "build": "pnpm --filter @workspace/smart-study-guide run build && pnpm --filter @workspace/api-server run build",
     "build:check": "pnpm run typecheck && pnpm run build",
     "typecheck:libs": "tsc --build",

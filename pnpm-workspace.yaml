@@ -72,7 +72,7 @@ autoInstallPeers: false
 allowBuilds:
   '@swc/core': true
   '@clerk/shared': true
-  esbuild: true
+  esbuild: false
   msw: true
   tesseract.js: true
   unrs-resolver: true
