@@ -389,7 +389,7 @@ describe("POST /api/analyses", () => {
     vi.mocked(db.execute).mockClear();
     vi.mocked(db.transaction).mockClear();
     const originalInsert = vi.mocked(db.insert).getMockImplementation();
-    vi.mocked(db.insert).mockImplementation((table: unknown) => {
+    vi.mocked(db.insert).mockImplementation((table) => {
       if (table === analysesTable) {
         throw new Error("getaddrinfo ENOTFOUND db.example.supabase.co");
       }
