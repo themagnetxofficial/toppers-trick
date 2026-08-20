@@ -227,18 +227,28 @@ export async function extractTextFromFiles(filePaths: string[]): Promise<string>
  */
 export async function extractTextFromFilesWithLabels(
   filePaths: string[]
-): Promise<{ text: string; yearLabels: string[]; extractedCharacterCount: number }> {
+): Promise<{
+  text: string;
+  yearLabels: string[];
+  papers: Array<{ label: string; text: string }>;
+  extractedCharacterCount: number;
+}> {
   const texts: string[] = [];
   for (const filePath of filePaths) {
     texts.push(await extractTextFromFile(filePath));
   }
   const yearLabels = filePaths.map((_, i) => `Paper ${i + 1}`);
+  const papers = texts.map((text, i) => ({
+    label: yearLabels[i],
+    text: text.trim(),
+  }));
   const labeled = texts.map(
     (t, i) => `--- Year: Paper ${i + 1} ---\n\n${t.trim() || "(No text extracted from this file)"}`
   );
   return {
     text: labeled.join("\n\n"),
     yearLabels,
+    papers,
     extractedCharacterCount: texts.reduce((total, text) => total + text.trim().length, 0),
   };
 }

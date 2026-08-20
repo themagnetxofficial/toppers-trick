@@ -246,7 +246,7 @@ export async function processAnalysis(
     }
 
     stage = "text_extraction";
-    const { text: extractedText, yearLabels, extractedCharacterCount } =
+    const { text: extractedText, yearLabels, papers, extractedCharacterCount } =
       await extractTextFromFilesWithLabels(params.filePaths);
 
     if (!extractedText || extractedCharacterCount < 50) {
@@ -256,6 +256,17 @@ export async function processAnalysis(
       );
     }
 
+    logger.info(
+      {
+        analysisId,
+        papers: papers.map((paper) => ({
+          label: paper.label,
+          extractedCharacters: paper.text.length,
+        })),
+      },
+      "Prepared every uploaded paper for AI comparison",
+    );
+
     // Call AI
     stage = "ai_analysis";
     const { result, inputTokens, outputTokens } = await analyzeWithAI({
@@ -264,6 +275,7 @@ export async function processAnalysis(
       boardOrUniversity: params.boardOrUniversity,
       subject: params.subject,
       yearLabels,
+      papers,
       extractedText,
     });
 

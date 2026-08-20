@@ -39,9 +39,17 @@ export interface TopicResult {
 export interface AiAnalysisResult {
   subject: string;
   years_analyzed: string[];
+  paper_summaries?: PaperSummary[];
   topics: TopicResult[];
   related_topic_pairs: string[];
   overall_strategy_tip: string;
+}
+
+export interface PaperSummary {
+  paper: string;
+  summary: string;
+  question_count: number;
+  distinctive_topics: string[];
 }
 
 export function validateAiAnalysisResult(
@@ -63,13 +71,58 @@ export function validateAiAnalysisResult(
     );
   }
 
-  if (!Array.isArray(result.years_analyzed)) {
-    result.years_analyzed = fallbackYears;
-  }
+  // The uploaded files are the source of truth. Do not let the model silently
+  // report only the papers it happened to mention in its answer.
+  result.years_analyzed = [...fallbackYears];
 
   if (!Array.isArray(result.related_topic_pairs)) {
     result.related_topic_pairs = [];
   }
+
+  const validYears = new Set(fallbackYears);
+  for (const topic of result.topics) {
+    if (Array.isArray(topic.years_appeared)) {
+      topic.years_appeared = [...new Set(topic.years_appeared)].filter((year) =>
+        validYears.has(year),
+      );
+    } else {
+      topic.years_appeared = [];
+    }
+  }
+}
+
+const MAX_CHARS_PER_PAPER = 40000;
+
+function limitPaperForPrompt(text: string): string {
+  if (text.length <= MAX_CHARS_PER_PAPER) return text;
+
+  const headLength = Math.floor(MAX_CHARS_PER_PAPER * 0.75);
+  const tailLength = MAX_CHARS_PER_PAPER - headLength;
+  return `${text.slice(0, headLength)}
+
+[Middle of this paper omitted only because it exceeded the per-paper AI input budget]
+
+${text.slice(-tailLength)}`;
+}
+
+export function buildPaperPromptContent(
+  papers: Array<{ label: string; text: string }> | undefined,
+  fallbackText: string,
+  fallbackYears: string[],
+): string {
+  const paperBlocks =
+    papers && papers.length > 0
+      ? papers
+      : [{ label: fallbackYears[0] ?? "Paper 1", text: fallbackText }];
+
+  return paperBlocks
+    .map(
+      (paper) =>
+        `--- ${paper.label} (complete paper kept separate) ---\n${limitPaperForPrompt(
+          paper.text || "(No text extracted from this paper)",
+        )}`,
+    )
+    .join("\n\n");
 }
 
 export async function analyzeWithAI(params: {
@@ -78,6 +131,7 @@ export async function analyzeWithAI(params: {
   boardOrUniversity: string;
   subject: string;
   yearLabels: string[];
+  papers?: Array<{ label: string; text: string }>;
   extractedText: string;
 }): Promise<{ result: AiAnalysisResult; inputTokens: number; outputTokens: number }> {
 
@@ -85,30 +139,44 @@ export async function analyzeWithAI(params: {
 
 Rules:
 1. Identify each distinct, specific topic that appears in the papers as its own entry — do NOT group multiple distinct topics under one umbrella category. A typical subject usually has 8-12 distinct topics across the syllabus — make sure you're not under-segmenting into overly broad categories. For example, "HRM" as a whole is too broad — instead identify "HRM vs Personnel Management", "HR Manager Roles", "Manpower Planning", "Training Methods", "Performance Appraisal", etc. as separate topics.
-2. Track YEAR-WISE presence — for each topic, show exactly which of the provided years it appeared in, not just a total count.
+2. Track YEAR-WISE presence — for each topic, show exactly which of the provided papers it appeared in, not just a total count.
 3. Identify QUESTION TYPE patterns — classify questions by format (MCQ, short answer, long answer/essay, case study) and note which format is most common for each topic.
 4. Assign a CONFIDENCE LEVEL (High/Medium/Low) to each prediction, based on how consistent the pattern is — a topic appearing in 4 out of 5 years in a similar format deserves "High confidence," while an inconsistent or only-once appearance deserves "Low confidence." Be honest — do not inflate confidence to seem more impressive.
 5. Note any RELATED TOPIC PAIRS — if two topics are frequently combined into a single case-study or long-answer question, mention this explicitly, since it changes how a student should prepare.
 6. Only use information present in the provided papers — do not invent patterns or add outside subject knowledge beyond what's needed to name/explain a concept clearly.
 7. Write all explanatory text in casual, friendly Hinglish, in the tone of an experienced senior mentoring a student — not formal or robotic.
-8. Output ONLY valid JSON in the exact schema provided. No extra text, no markdown, no preamble.`;
+8. Analyze EVERY labeled paper separately before comparing them. Do not stop after the first paper.
+9. Output ONLY valid JSON in the exact schema provided. No extra text, no markdown, no preamble.`;
 
   const yearsList = params.yearLabels.join(", ");
+  const paperContent = buildPaperPromptContent(
+    params.papers,
+    params.extractedText,
+    params.yearLabels,
+  );
 
   const userPrompt = `Category: ${params.category}
 Class/Course: ${params.classOrCourse || "Not specified"}
 Board/University: ${params.boardOrUniversity || "Not specified"}
 Subject: ${params.subject}
-Years provided: ${yearsList}
+Papers provided (these exact labels must be used): ${yearsList}
 
-Previous year paper content (combined, labeled by year):
-${params.extractedText.substring(0, 22000)}
+Previous year paper content (each paper is separate and must be analyzed):
+${paperContent}
 
 Perform a deep analysis and return JSON in this exact format:
 
 {
   "subject": "string",
   "years_analyzed": ${JSON.stringify(params.yearLabels)},
+  "paper_summaries": [
+    {
+      "paper": "Paper 1",
+      "summary": "Hinglish summary of what this paper tested",
+      "question_count": 0,
+      "distinctive_topics": ["specific topic that appeared in this paper"]
+    }
+  ],
   "topics": [
     {
       "topic_name": "string — specific concept/area, NOT a broad chapter umbrella",
@@ -138,6 +206,7 @@ Perform a deep analysis and return JSON in this exact format:
 }
 
 Rules for this response:
+- paper_summaries: include EXACTLY one entry for EVERY provided paper (${yearsList}). Never omit Paper 2, Paper 3, or any other provided paper. Count questions conservatively from the visible paper content.
 - topics: Aim for 8-12 specific topics. Each topic_name should be a precise concept, NOT a broad chapter name. Split broad areas into their actual distinct sub-concepts.
 - priority: Use these thresholds strictly:
   "High"   → appeared in 3+ of the provided years (very consistent pattern)

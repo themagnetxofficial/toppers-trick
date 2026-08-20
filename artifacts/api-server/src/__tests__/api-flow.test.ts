@@ -239,6 +239,12 @@ vi.mock("../lib/extractText", () => ({
   extractTextFromFilesWithLabels: vi.fn().mockResolvedValue({
     text: "--- Year: Paper 1 ---\n\nQuestion 1: Describe Newton's laws (10 marks)",
     yearLabels: ["Paper 1"],
+    papers: [
+      {
+        label: "Paper 1",
+        text: "Question 1: Describe Newton's laws (10 marks)",
+      },
+    ],
     extractedCharacterCount: 59,
   }),
 }));

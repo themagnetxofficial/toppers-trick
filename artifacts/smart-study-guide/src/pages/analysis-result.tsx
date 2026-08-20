@@ -46,6 +46,13 @@ interface TopicData {
   total_frequency?: number;
 }
 
+interface PaperSummaryData {
+  paper?: string;
+  summary?: string;
+  question_count?: number;
+  distinctive_topics?: string[];
+}
+
 function getTopicName(t: TopicData): string {
   return t.topic_name ?? t.chapter_name ?? "—";
 }
@@ -194,6 +201,7 @@ export default function AnalysisResultPage() {
   const ai = analysis.aiResponse as {
     subject?: string;
     years_analyzed?: string[] | number;
+    paper_summaries?: PaperSummaryData[];
     // new schema
     topics?: TopicData[];
     related_topic_pairs?: string[];
@@ -225,6 +233,9 @@ export default function AnalysisResultPage() {
 
   const allYears: string[] = Array.isArray(ai?.years_analyzed)
     ? ai!.years_analyzed as string[]
+    : Array.from({ length: analysis.yearsAnalyzed ?? 0 }, (_, i) => `Paper ${i + 1}`);
+  const paperSummaries: PaperSummaryData[] = Array.isArray(ai?.paper_summaries)
+    ? ai.paper_summaries
     : [];
 
   // Support both new (topics) and old (chapters) schema
@@ -258,6 +269,52 @@ export default function AnalysisResultPage() {
           )}
         </div>
       </div>
+
+      {/* Coverage across every uploaded paper */}
+      {allYears.length > 0 && (
+        <Card className="border-primary/20 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-xl font-bold font-serif">Papers Covered</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Har uploaded previous-year paper ko alag se read karke compare kiya gaya hai.
+            </p>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {allYears.map((paper) => {
+              const summary = paperSummaries.find((item) => item.paper === paper);
+              return (
+                <div key={paper} className="rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <span className="font-semibold">{paper}</span>
+                    <Badge variant="secondary">✓ Included</Badge>
+                  </div>
+                  {summary?.question_count !== undefined && summary.question_count > 0 && (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      About {summary.question_count} questions identified
+                    </p>
+                  )}
+                  {summary?.summary ? (
+                    <p className="text-sm text-foreground/80 leading-relaxed">{summary.summary}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Is paper ke questions ko combined pattern analysis mein include kiya gaya hai.
+                    </p>
+                  )}
+                  {summary?.distinctive_topics && summary.distinctive_topics.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-3">
+                      {summary.distinctive_topics.map((topic, index) => (
+                        <span key={`${topic}-${index}`} className="text-xs rounded-full bg-background border border-border px-2 py-1">
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Overall Strategy Tip */}
       {ai?.overall_strategy_tip && (
