@@ -44,6 +44,34 @@ export interface AiAnalysisResult {
   overall_strategy_tip: string;
 }
 
+export function validateAiAnalysisResult(
+  result: AiAnalysisResult,
+  fallbackYears: string[],
+): void {
+  if (!result.subject?.trim() || !Array.isArray(result.topics)) {
+    throw new Error("Invalid AI response schema");
+  }
+
+  result.topics = result.topics.filter(
+    (topic) =>
+      typeof topic?.topic_name === "string" && topic.topic_name.trim().length > 0,
+  );
+
+  if (result.topics.length === 0) {
+    throw new Error(
+      "The analysis response did not include any usable topics. Please try again.",
+    );
+  }
+
+  if (!Array.isArray(result.years_analyzed)) {
+    result.years_analyzed = fallbackYears;
+  }
+
+  if (!Array.isArray(result.related_topic_pairs)) {
+    result.related_topic_pairs = [];
+  }
+}
+
 export async function analyzeWithAI(params: {
   category: string;
   classOrCourse: string;
@@ -160,15 +188,7 @@ Rules for this response:
     parsed = JSON.parse(retryContent) as AiAnalysisResult;
   }
 
-  // Validate required fields
-  if (!parsed.subject || !parsed.topics || !Array.isArray(parsed.topics)) {
-    throw new Error("Invalid AI response schema");
-  }
-
-  // Ensure years_analyzed is always an array
-  if (!Array.isArray(parsed.years_analyzed)) {
-    parsed.years_analyzed = params.yearLabels;
-  }
+  validateAiAnalysisResult(parsed, params.yearLabels);
 
   return {
     result: parsed,
