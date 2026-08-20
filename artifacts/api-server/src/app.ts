@@ -60,7 +60,7 @@ if (process.env.NODE_ENV === "production") {
   if (existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
     // Catch-all: send index.html for any non-API route so client-side routing works
-    app.get("*", (_req, res) => {
+    app.get("/{*splat}", (_req, res) => {
       res.sendFile(join(frontendDist, "index.html"));
     });
     logger.info({ frontendDist }, "Serving frontend static files");
