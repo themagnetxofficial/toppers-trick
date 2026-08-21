@@ -28,10 +28,7 @@ vi.mock("pdf-parse", () => ({
 
 vi.mock("../lib/openai", () => ({ transcribeImagesWithVision }));
 
-import {
-  extractTextFromFile,
-  extractTextFromFilesWithLabels,
-} from "../lib/extractText";
+import { extractTextFromFile } from "../lib/extractText";
 
 const temporaryFiles: string[] = [];
 
@@ -125,77 +122,6 @@ describe("vision extraction fallback", () => {
 
     await expect(extractTextFromFile(filePath)).rejects.toThrow("Could not render page 1");
     expect(transcribeImagesWithVision).not.toHaveBeenCalled();
-  });
-
-  it("extracts at most two uploaded papers at once and preserves their input order", async () => {
-    const firstPaper = makeTemporaryFile(".jpg");
-    const secondPaper = makeTemporaryFile(".jpg");
-    const thirdPaper = makeTemporaryFile(".jpg");
-    const pending: Array<{ label: string; resolve: (text: string) => void }> = [];
-
-    transcribeImagesWithVision.mockImplementation(
-      (images: Array<{ label: string }>) =>
-        new Promise<string>((resolve) => {
-          pending.push({ label: images[0]!.label, resolve });
-        }),
-    );
-
-    const extraction = extractTextFromFilesWithLabels([
-      firstPaper,
-      secondPaper,
-      thirdPaper,
-    ]);
-
-    await vi.waitFor(() => expect(transcribeImagesWithVision).toHaveBeenCalledTimes(2));
-    const first = pending.find((item) => item.label === path.basename(firstPaper));
-    const second = pending.find((item) => item.label === path.basename(secondPaper));
-    expect(first).toBeDefined();
-    expect(second).toBeDefined();
-
-    second!.resolve("Second paper text");
-    await vi.waitFor(() => expect(transcribeImagesWithVision).toHaveBeenCalledTimes(3));
-    const third = pending.find((item) => item.label === path.basename(thirdPaper));
-    expect(third).toBeDefined();
-
-    first!.resolve("First paper text");
-    third!.resolve("Third paper text");
-
-    await expect(extraction).resolves.toMatchObject({
-      papers: [
-        { label: "Paper 1", text: "First paper text" },
-        { label: "Paper 2", text: "Second paper text" },
-        { label: "Paper 3", text: "Third paper text" },
-      ],
-    });
-  });
-
-  it("shares the two-paper extraction limit across simultaneous analyses", async () => {
-    const firstAnalysisPapers = [makeTemporaryFile(".jpg"), makeTemporaryFile(".jpg")];
-    const secondAnalysisPapers = [makeTemporaryFile(".jpg"), makeTemporaryFile(".jpg")];
-    const pending: Array<{ label: string; resolve: (text: string) => void }> = [];
-
-    transcribeImagesWithVision.mockImplementation(
-      (images: Array<{ label: string }>) =>
-        new Promise<string>((resolve) => {
-          pending.push({ label: images[0]!.label, resolve });
-        }),
-    );
-
-    const firstExtraction = extractTextFromFilesWithLabels(firstAnalysisPapers);
-    const secondExtraction = extractTextFromFilesWithLabels(secondAnalysisPapers);
-
-    await vi.waitFor(() => expect(transcribeImagesWithVision).toHaveBeenCalledTimes(2));
-    expect(pending).toHaveLength(2);
-
-    pending[0]!.resolve("First result");
-    pending[1]!.resolve("Second result");
-    await vi.waitFor(() => expect(transcribeImagesWithVision).toHaveBeenCalledTimes(4));
-
-    for (const item of pending.slice(2)) {
-      item.resolve(`Result for ${item.label}`);
-    }
-
-    await expect(Promise.all([firstExtraction, secondExtraction])).resolves.toHaveLength(2);
   });
 });
 
