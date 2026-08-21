@@ -74,7 +74,6 @@ allowBuilds:
   '@clerk/shared': true
   esbuild: false
   msw: true
-  tesseract.js: true
   unrs-resolver: true
 
 overrides:

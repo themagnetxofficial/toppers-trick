@@ -2,6 +2,8 @@ import OpenAI from "openai";
 import { logger } from "./logger";
 
 let _openai: OpenAI | null = null;
+const VISION_TRANSCRIPTION_MODEL = "gpt-5-nano";
+const VISION_TRANSCRIPTION_RETRY_COUNT = 1;
 
 function getOpenAI(): OpenAI {
   if (!_openai) {
@@ -11,6 +13,79 @@ function getOpenAI(): OpenAI {
     _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return _openai;
+}
+
+export interface VisionTranscriptionImage {
+  data: Buffer;
+  mimeType: "image/jpeg" | "image/png";
+  label: string;
+}
+
+/**
+ * Transcribe scanned paper images with the lowest-cost model that supports
+ * vision input. Pages are sent one at a time to keep each request bounded and
+ * preserve their original order in the combined text.
+ */
+export async function transcribeImagesWithVision(
+  images: VisionTranscriptionImage[],
+): Promise<string> {
+  const texts: string[] = [];
+
+  for (const image of images) {
+    const requestTranscription = () =>
+      getOpenAI().chat.completions.create({
+        model: VISION_TRANSCRIPTION_MODEL,
+        max_completion_tokens: 8192,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  `Transcribe every piece of visible text from ${image.label}. ` +
+                  "Return only the transcription, with no summary or commentary. " +
+                  "Keep question numbers, answer choices, headings, and line breaks where readable. " +
+                  "Use [illegible] only for text that genuinely cannot be read.",
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+                  detail: "high",
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+    let response: Awaited<ReturnType<typeof requestTranscription>> | null = null;
+    for (let attempt = 0; attempt <= VISION_TRANSCRIPTION_RETRY_COUNT; attempt += 1) {
+      try {
+        response = await requestTranscription();
+        break;
+      } catch (err) {
+        if (attempt === VISION_TRANSCRIPTION_RETRY_COUNT) throw err;
+        logger.warn(
+          { err, image: image.label },
+          "OpenAI vision transcription failed once; retrying",
+        );
+      }
+    }
+
+    if (!response) {
+      throw new Error(`OpenAI vision did not return a response for ${image.label}.`);
+    }
+
+    const text = response.choices[0]?.message?.content?.trim();
+    if (!text) {
+      throw new Error(`OpenAI vision returned no transcription for ${image.label}.`);
+    }
+    texts.push(text);
+  }
+
+  return texts.join("\n\n");
 }
 
 export interface QuestionTypeBreakdown {

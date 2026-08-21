@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { copyFile, mkdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -13,12 +13,6 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
-  const tessdataDir = path.resolve(distDir, "tessdata");
-  await mkdir(tessdataDir, { recursive: true });
-  await copyFile(
-    path.resolve(artifactDir, "assets", "tessdata", "eng.traineddata.gz"),
-    path.resolve(tessdataDir, "eng.traineddata.gz"),
-  );
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
@@ -118,8 +112,6 @@ async function buildAll() {
       "tiny-inflate",
       // pdf-parse
       "pdf-parse",
-      // tesseract.js
-      "tesseract.js",
       // multer
       "multer",
       // razorpay
