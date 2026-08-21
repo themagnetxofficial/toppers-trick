@@ -46,7 +46,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
                 <strong>Error:</strong> {detail.analysis.errorMessage}
               </div>
             )}
-            {detail.analysis.aiResponseJson && (
+            {Boolean(detail.analysis.aiResponseJson) && (
               <div>
                 <p className="font-semibold mb-2 text-muted-foreground uppercase text-xs tracking-widest">AI Response JSON</p>
                 <pre className="text-xs bg-muted p-3 rounded-xl overflow-auto max-h-60 whitespace-pre-wrap">

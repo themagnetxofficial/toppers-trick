@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useParams } from "wouter";
-import { useGetAnalysis, useDownloadAnalysisPdf, useRetryAnalysis } from "@workspace/api-client-react";
+import {
+  getDownloadAnalysisPdfQueryKey,
+  getGetAnalysisQueryKey,
+  useGetAnalysis,
+  useDownloadAnalysisPdf,
+  useRetryAnalysis,
+} from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,11 +121,11 @@ export default function AnalysisResultPage() {
   const id = parseInt(params.id || "0", 10);
 
   const { data: analysis, isLoading, error } = useGetAnalysis(id, {
-    query: { enabled: !!id }
+    query: { queryKey: getGetAnalysisQueryKey(id), enabled: !!id }
   });
 
   const { refetch: getPdfUrl } = useDownloadAnalysisPdf(id, {
-    query: { enabled: false }
+    query: { queryKey: getDownloadAnalysisPdfQueryKey(id), enabled: false }
   });
 
   const { mutate: retryAnalysis, isPending: isRetrying } = useRetryAnalysis({

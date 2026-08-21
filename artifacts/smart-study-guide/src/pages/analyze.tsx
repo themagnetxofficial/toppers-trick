@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useCreateAnalysis, useGetAnalysis } from "@workspace/api-client-react";
+import {
+  getGetAnalysisQueryKey,
+  useCreateAnalysis,
+  useGetAnalysis,
+} from "@workspace/api-client-react";
 import { UploadCloud, File, X, ChevronRight, ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -70,6 +74,7 @@ export default function AnalyzePage() {
   // Polling analysis status
   const { data: analysisData } = useGetAnalysis(analysisId as number, { 
     query: { 
+      queryKey: getGetAnalysisQueryKey(analysisId as number),
       enabled: !!analysisId,
       refetchInterval: (query) => {
         const data = query.state.data;
@@ -86,6 +91,7 @@ export default function AnalyzePage() {
       }, 3000);
       return () => clearInterval(interval);
     }
+    return undefined;
   }, [step]);
 
   // Check completion

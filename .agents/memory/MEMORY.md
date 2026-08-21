@@ -5,5 +5,6 @@
 - [Admin + Blog routes](admin-blog-routes.md) — db.execute returns {rows:[]} not array; use sq() helper; zod not bundled in api-server (use inline validation); sitemap route must precede :slug
 - [Hostinger build environment](hostinger-build-environment.md) — pnpm is available to install dependencies but absent from the application build command PATH.
 - [Vision transcription for scanned papers](portable-scanned-pdf-ocr.md) — scans use sequential OpenAI vision after in-process PDF rendering; no Poppler or Tesseract.
+- [Build worker limits](replit-build-worker-limits.md) — stale pnpm bootstrap workers can exhaust local process slots and make Vite/esbuild appear broken.
 - [Multi-paper AI coverage](multi-paper-ai-coverage.md) — never truncate a combined paper corpus; preserve a labeled, bounded input block for every upload.
 - [GitHub publishing recovery](github-publishing-recovery.md) — if the workspace Git HTTPS credential expires, use the connected GitHub API with a guarded branch update.
