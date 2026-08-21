@@ -3,12 +3,46 @@ import os from "os";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { fileURLToPath } from "url";
 import { PDFParse } from "pdf-parse";
 import { logger } from "./logger";
 import { runInOcrQueue } from "./ocrQueue";
 
 const execFileAsync = promisify(execFile);
 const MINIMUM_TEXT_LENGTH = 100;
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const OCR_LANGUAGE_DATA_DIRS = [
+  path.resolve(process.cwd(), "assets", "tessdata"),
+  path.resolve(process.cwd(), "dist", "tessdata"),
+  path.resolve(MODULE_DIR, "tessdata"),
+];
+
+function getBundledOcrLanguageDataDir(): string {
+  const languageDataDir = OCR_LANGUAGE_DATA_DIRS.find((directory) =>
+    fs.existsSync(path.join(directory, "eng.traineddata.gz")),
+  );
+
+  if (!languageDataDir) {
+    throw new Error(
+      `Bundled English OCR data is missing. Checked: ${OCR_LANGUAGE_DATA_DIRS.join(", ")}`,
+    );
+  }
+
+  return languageDataDir;
+}
+
+async function createBundledOcrWorker() {
+  const { createWorker } = await import("tesseract.js");
+
+  // Do not download language data from a CDN during an analysis. Production
+  // hosts can block or time out that request, which previously left image-only
+  // PDFs with no usable text despite their pages being readable.
+  return createWorker("eng", 1, {
+    langPath: getBundledOcrLanguageDataDir(),
+    gzip: true,
+    cacheMethod: "none",
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Text-based PDF: use pdftotext (poppler) — fast, no API issues
@@ -46,8 +80,7 @@ async function recognizeImagesWithOcr(
   images: Array<string | Buffer>,
   filePath: string,
 ): Promise<string> {
-  const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker("eng");
+  const worker = await createBundledOcrWorker();
 
   try {
     const texts: string[] = [];
@@ -66,8 +99,7 @@ async function recognizeRenderedPdfPages(
   pageCount: number,
   filePath: string,
 ): Promise<string> {
-  const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker("eng");
+  const worker = await createBundledOcrWorker();
 
   try {
     const texts: string[] = [];

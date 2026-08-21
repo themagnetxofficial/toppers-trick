@@ -447,6 +447,46 @@ describe("POST /api/analyses", () => {
 // ---------------------------------------------------------------------------
 
 describe("background analysis diagnostics", () => {
+  it("fails safely instead of completing an analysis when one paper has no extracted text", async () => {
+    const { db } = await import("@workspace/db");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const firstPaper = path.join(uploadsDir, "partial-extraction-first.pdf");
+    const secondPaper = path.join(uploadsDir, "partial-extraction-second.pdf");
+    fs.writeFileSync(firstPaper, "%PDF-1.4 test");
+    fs.writeFileSync(secondPaper, "%PDF-1.4 test");
+    vi.mocked(db.update).mockClear();
+
+    vi.mocked(extractTextFromFilesWithLabels).mockResolvedValueOnce({
+      text: "--- Year: Paper 1 ---\nReadable question\n\n--- Year: Paper 2 ---\n(No text extracted from this file)",
+      yearLabels: ["Paper 1", "Paper 2"],
+      papers: [
+        { label: "Paper 1", text: "Readable question from the first paper." },
+        { label: "Paper 2", text: "" },
+      ],
+      extractedCharacterCount: 52,
+    });
+
+    await processAnalysis(98, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [firstPaper, secondPaper],
+      userId: 1,
+    });
+
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(2);
+    const failureUpdate = vi.mocked(db.update).mock.results[0]?.value as {
+      set: ReturnType<typeof vi.fn>;
+    };
+    expect(failureUpdate.set).toHaveBeenCalledWith({
+      status: "failed",
+      errorMessage: getAnalysisFailureMessageWithRefund("text_extraction", "pending"),
+    });
+    fs.rmSync(firstPaper, { force: true });
+    fs.rmSync(secondPaper, { force: true });
+  });
+
   it("records a specific retryable message when an uploaded file disappears", async () => {
     const { db } = await import("@workspace/db");
     vi.mocked(db.update).mockClear();

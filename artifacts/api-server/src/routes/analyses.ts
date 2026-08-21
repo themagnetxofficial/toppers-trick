@@ -256,6 +256,14 @@ export async function processAnalysis(
       );
     }
 
+    const papersWithoutText = papers.filter((paper) => paper.text.length < 50);
+    if (papersWithoutText.length > 0) {
+      throw new AnalysisProcessingError(
+        "text_extraction",
+        `No readable text was extracted from ${papersWithoutText.map((paper) => paper.label).join(", ")}`,
+      );
+    }
+
     logger.info(
       {
         analysisId,
