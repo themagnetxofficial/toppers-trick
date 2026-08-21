@@ -393,6 +393,66 @@ describe("POST /api/analyses", () => {
     expect(typeof res.body.id).toBe("number");
   });
 
+  it("acknowledges creation and keeps status polling available while extraction runs", async () => {
+    const fakePath = path.join(uploadsDir, "deferred-analysis.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const originalAnalysis = dbState.analysis;
+    dbState.analysis = { ...dbState.insertedAnalysis, status: "processing" };
+
+    let releaseExtraction!: () => void;
+    const extractionPending = new Promise<{
+      text: string;
+      yearLabels: string[];
+      papers: Array<{ label: string; text: string }>;
+      extractedCharacterCount: number;
+    }>((resolve) => {
+      releaseExtraction = () =>
+        resolve({
+          text: "--- Year: Paper 1 ---\n\nQuestion 1: Explain motion.",
+          yearLabels: ["Paper 1"],
+          papers: [{ label: "Paper 1", text: "Question 1: Explain motion." }],
+          extractedCharacterCount: 28,
+        });
+    });
+    vi.mocked(extractTextFromFilesWithLabels).mockImplementationOnce(
+      () => extractionPending,
+    );
+
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+      const response = await Promise.race([
+        request(app)
+          .post("/api/analyses")
+          .send({
+            category: "school",
+            subject: "Physics",
+            filePaths: [fakePath],
+          }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("Analysis creation waited for extraction")),
+            1_000,
+          );
+        }),
+      ]);
+      clearTimeout(timeout);
+
+      expect(response.status).toBe(201);
+      expect(response.body.status).toBe("processing");
+
+      const poll = await request(app).get("/api/analyses/42");
+      expect(poll.status).toBe(200);
+      expect(poll.body.status).toBe("processing");
+    } finally {
+      clearTimeout(timeout);
+      releaseExtraction();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      dbState.analysis = originalAnalysis;
+      fs.rmSync(fakePath, { force: true });
+    }
+  });
+
   it("rolls back the credit deduction and cleans up uploads when analysis creation fails", async () => {
     const fakePath = path.join(uploadsDir, "analysis-start-failure.pdf");
     fs.writeFileSync(fakePath, "%PDF-1.4 test");
@@ -787,6 +847,93 @@ describe("POST /api/analyses/:id/retry", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("processing");
     expect(res.body.errorMessage).toBeNull();
+  });
+
+  it("acknowledges a retry and keeps status polling available while extraction runs", async () => {
+    const fakePath = path.join(uploadsDir, "deferred-retry.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+    const failedAnalysis = {
+      id: 42,
+      userId: 1,
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      status: "failed",
+      inputFilePaths: [fakePath],
+      yearsAnalyzed: null,
+      pdfFilePath: null,
+      aiResponseJson: null,
+      errorMessage: "AI error",
+      createdAt: new Date().toISOString(),
+    };
+    const originalAnalysis = dbState.analysis;
+    dbState.analysis = failedAnalysis;
+    const { db } = await import("@workspace/db");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+
+    const makeUpdateChain = (rows: unknown[]) => {
+      const chain: Record<string, unknown> = {};
+      chain.set = vi.fn().mockReturnThis();
+      chain.where = vi.fn().mockReturnThis();
+      chain.returning = vi.fn().mockResolvedValue(rows);
+      chain.then = vi.fn().mockImplementation((fn: (value: unknown[]) => unknown) =>
+        Promise.resolve(rows).then(fn),
+      );
+      return chain as unknown as ReturnType<typeof db.update>;
+    };
+    vi.mocked(db.update).mockImplementationOnce(() =>
+      makeUpdateChain([{ ...failedAnalysis, status: "processing", errorMessage: null }]),
+    );
+
+    let releaseExtraction!: () => void;
+    const extractionPending = new Promise<{
+      text: string;
+      yearLabels: string[];
+      papers: Array<{ label: string; text: string }>;
+      extractedCharacterCount: number;
+    }>((resolve) => {
+      releaseExtraction = () => {
+        const readableText = "Question 1: Explain the laws of motion. ".repeat(2);
+        resolve({
+          text: `--- Year: Paper 1 ---\n\n${readableText}`,
+          yearLabels: ["Paper 1"],
+          papers: [{ label: "Paper 1", text: readableText }],
+          extractedCharacterCount: readableText.length,
+        });
+      };
+    });
+    vi.mocked(extractTextFromFilesWithLabels).mockImplementationOnce(
+      () => extractionPending,
+    );
+
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+      const response = await Promise.race([
+        request(app).post("/api/analyses/42/retry"),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("Analysis retry waited for extraction")),
+            1_000,
+          );
+        }),
+      ]);
+      clearTimeout(timeout);
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe("processing");
+      dbState.analysis = { ...failedAnalysis, status: "processing", errorMessage: null };
+
+      const poll = await request(app).get("/api/analyses/42");
+      expect(poll.status).toBe(200);
+      expect(poll.body.status).toBe("processing");
+    } finally {
+      clearTimeout(timeout);
+      releaseExtraction();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      dbState.analysis = originalAnalysis;
+      fs.rmSync(fakePath, { force: true });
+    }
   });
 
   it("returns 409 when concurrent retry already claimed the slot", async () => {

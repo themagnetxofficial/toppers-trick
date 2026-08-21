@@ -4,6 +4,9 @@ import { logger } from "./logger";
 let _openai: OpenAI | null = null;
 const VISION_TRANSCRIPTION_MODEL = "gpt-5-nano";
 const VISION_TRANSCRIPTION_RETRY_COUNT = 1;
+const MAX_CONCURRENT_VISION_TRANSCRIPTIONS = 2;
+let activeVisionTranscriptions = 0;
+const waitingVisionTranscriptions: Array<() => void> = [];
 
 function getOpenAI(): OpenAI {
   if (!_openai) {
@@ -21,17 +24,30 @@ export interface VisionTranscriptionImage {
   label: string;
 }
 
-/**
- * Transcribe scanned paper images with the lowest-cost model that supports
- * vision input. Pages are sent one at a time to keep each request bounded and
- * preserve their original order in the combined text.
- */
-export async function transcribeImagesWithVision(
-  images: VisionTranscriptionImage[],
-): Promise<string> {
-  const texts: string[] = [];
+async function withVisionTranscriptionSlot<T>(operation: () => Promise<T>): Promise<T> {
+  await new Promise<void>((resolve) => {
+    const start = () => {
+      activeVisionTranscriptions += 1;
+      resolve();
+    };
 
-  for (const image of images) {
+    if (activeVisionTranscriptions < MAX_CONCURRENT_VISION_TRANSCRIPTIONS) {
+      start();
+    } else {
+      waitingVisionTranscriptions.push(start);
+    }
+  });
+
+  try {
+    return await operation();
+  } finally {
+    activeVisionTranscriptions -= 1;
+    waitingVisionTranscriptions.shift()?.();
+  }
+}
+
+async function transcribeImageWithVision(image: VisionTranscriptionImage): Promise<string> {
+  return withVisionTranscriptionSlot(async () => {
     const requestTranscription = () =>
       getOpenAI().chat.completions.create({
         model: VISION_TRANSCRIPTION_MODEL,
@@ -82,9 +98,20 @@ export async function transcribeImagesWithVision(
     if (!text) {
       throw new Error(`OpenAI vision returned no transcription for ${image.label}.`);
     }
-    texts.push(text);
-  }
+    return text;
+  });
+}
 
+/**
+ * Transcribe scanned paper images with the lowest-cost model that supports
+ * vision input. A shared two-request limit protects the upstream rate limit
+ * across all concurrently extracted papers, while Promise.all preserves input
+ * order in the returned transcription.
+ */
+export async function transcribeImagesWithVision(
+  images: VisionTranscriptionImage[],
+): Promise<string> {
+  const texts = await Promise.all(images.map(transcribeImageWithVision));
   return texts.join("\n\n");
 }
 

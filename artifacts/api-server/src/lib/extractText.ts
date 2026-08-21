@@ -9,6 +9,31 @@ import { transcribeImagesWithVision } from "./openai";
 // short document with usable selectable text should stay local.
 const MINIMUM_USABLE_EMBEDDED_TEXT_LENGTH = 50;
 const PDF_RENDER_WIDTH = 1600;
+const MAX_CONCURRENT_FILE_EXTRACTIONS = 2;
+let activeFileExtractions = 0;
+const waitingFileExtractions: Array<() => void> = [];
+
+async function withFileExtractionSlot<T>(operation: () => Promise<T>): Promise<T> {
+  await new Promise<void>((resolve) => {
+    const start = () => {
+      activeFileExtractions += 1;
+      resolve();
+    };
+
+    if (activeFileExtractions < MAX_CONCURRENT_FILE_EXTRACTIONS) {
+      start();
+    } else {
+      waitingFileExtractions.push(start);
+    }
+  });
+
+  try {
+    return await operation();
+  } finally {
+    activeFileExtractions -= 1;
+    waitingFileExtractions.shift()?.();
+  }
+}
 
 async function extractTextViaPdfParse(filePath: string): Promise<string> {
   let parser: PDFParse | null = null;
@@ -115,10 +140,11 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
 }
 
 export async function extractTextFromFiles(filePaths: string[]): Promise<string> {
-  const texts: string[] = [];
-  for (const filePath of filePaths) {
-    texts.push(await extractTextFromFile(filePath));
-  }
+  const texts = await Promise.all(
+    filePaths.map((filePath) =>
+      withFileExtractionSlot(() => extractTextFromFile(filePath)),
+    ),
+  );
   return texts.filter(Boolean).join("\n\n---\n\n");
 }
 
@@ -134,10 +160,11 @@ export async function extractTextFromFilesWithLabels(
   papers: Array<{ label: string; text: string }>;
   extractedCharacterCount: number;
 }> {
-  const texts: string[] = [];
-  for (const filePath of filePaths) {
-    texts.push(await extractTextFromFile(filePath));
-  }
+  const texts = await Promise.all(
+    filePaths.map((filePath) =>
+      withFileExtractionSlot(() => extractTextFromFile(filePath)),
+    ),
+  );
   const yearLabels = filePaths.map((_, i) => `Paper ${i + 1}`);
   const papers = texts.map((text, i) => ({
     label: yearLabels[i],

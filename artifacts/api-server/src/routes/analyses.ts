@@ -43,6 +43,36 @@ import { inspectStorageDirectory, inspectStoredFile } from "../lib/fileStorage";
 
 const router: IRouter = Router();
 
+type AnalysisProcessingParams = {
+  category: string;
+  classOrCourse: string;
+  boardOrUniversity: string;
+  subject: string;
+  filePaths: string[];
+  userId: number;
+};
+
+/**
+ * Start expensive work on the next event-loop turn. Calling this only after a
+ * create/retry response is sent gives the reverse proxy a chance to receive
+ * the small JSON response before PDF rendering or vision work starts.
+ */
+function dispatchAnalysisProcessing(
+  analysisId: number,
+  params: AnalysisProcessingParams,
+  source: "create" | "retry",
+): void {
+  setImmediate(() => {
+    logger.info({ analysisId, source }, "Starting deferred background analysis");
+    void processAnalysis(analysisId, params).catch((err) => {
+      logger.error(
+        { err, analysisId, source },
+        "Deferred background analysis processing failed",
+      );
+    });
+  });
+}
+
 function isInsideUploadsDir(filePath: string): boolean {
   const uploadsDir = path.resolve(getUploadsDir());
   const resolvedPath = path.resolve(filePath);
@@ -160,7 +190,7 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
       return;
     }
 
-    // Respond immediately, process async
+    // Send the small acknowledgement first. OCR and AI work is deferred below.
     res.status(201).json(
       GetAnalysisResponse.parse({
         id: analysis.id,
@@ -175,17 +205,14 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
       })
     );
 
-    // Background processing
-    processAnalysis(analysis.id, {
+    dispatchAnalysisProcessing(analysis.id, {
       category,
       classOrCourse: classOrCourse ?? "",
       boardOrUniversity: boardOrUniversity ?? "",
       subject,
       filePaths,
       userId: req.userId!,
-    }).catch((err) => {
-      logger.error({ err, analysisId: analysis.id }, "Background analysis processing failed");
-    });
+    }, "create");
   } catch (err) {
     logger.error({ err }, "Could not start analysis");
     cleanupUnclaimedUploads(filePaths);
@@ -201,14 +228,7 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
 
 export async function processAnalysis(
   analysisId: number,
-  params: {
-    category: string;
-    classOrCourse: string;
-    boardOrUniversity: string;
-    subject: string;
-    filePaths: string[];
-    userId: number;
-  }
+  params: AnalysisProcessingParams,
 ) {
   let creditRefunded = false;
   let stage: AnalysisFailureStage = "file_unavailable";
@@ -541,7 +561,7 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
     return;
   }
 
-  // Respond immediately, then process in background
+  // Send the retry acknowledgement first. OCR and AI work is deferred below.
   res.status(200).json(
     GetAnalysisResponse.parse({
       id: updatedAnalysis.id,
@@ -557,16 +577,14 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
     })
   );
 
-  processAnalysis(id, {
+  dispatchAnalysisProcessing(id, {
     category: analysis.category,
     classOrCourse: analysis.classOrCourse ?? "",
     boardOrUniversity: analysis.boardOrUniversity ?? "",
     subject: analysis.subject,
     filePaths,
     userId: req.userId!,
-  }).catch((err) => {
-    logger.error({ err, analysisId: id }, "Background retry processing failed");
-  });
+  }, "retry");
 });
 
 router.get(

@@ -6,5 +6,6 @@
 - [Hostinger build environment](hostinger-build-environment.md) — pnpm is available to install dependencies but absent from the application build command PATH.
 - [Vision transcription for scanned papers](portable-scanned-pdf-ocr.md) — scans use sequential OpenAI vision after in-process PDF rendering; no Poppler or Tesseract.
 - [Build worker limits](replit-build-worker-limits.md) — stale pnpm bootstrap workers can exhaust local process slots and make Vite/esbuild appear broken.
+- [Background analysis boundary](analysis-job-boundary.md) — acknowledge analysis requests before OCR begins; shared extraction and vision limits protect Hostinger and OpenAI.
 - [Multi-paper AI coverage](multi-paper-ai-coverage.md) — never truncate a combined paper corpus; preserve a labeled, bounded input block for every upload.
 - [GitHub publishing recovery](github-publishing-recovery.md) — if the workspace Git HTTPS credential expires, use the connected GitHub API with a guarded branch update.

@@ -46,3 +46,11 @@ ADMIN_CLERK_USER_ID = "user_3HDuH4eVIX1SEs6hYw4bqyix9xX"
 
 [nix]
 channel = "stable-25_05"
+
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[[ports]]
+localPort = 23180
+externalPort = 3000
