@@ -256,6 +256,7 @@ import app from "../app";
 import { processAnalysis } from "../routes/analyses";
 import {
   getAnalysisFailureMessageWithRefund,
+  getTemporaryOcrDiagnosticMessage,
 } from "../lib/analysisFailure";
 
 // ---------------------------------------------------------------------------
@@ -510,6 +511,34 @@ describe("background analysis diagnostics", () => {
     });
   });
 
+  it("stores the underlying OCR exception temporarily instead of masking it", async () => {
+    const { db } = await import("@workspace/db");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const paper = path.join(uploadsDir, "ocr-runtime-failure.pdf");
+    const runtimeError = new Error("Cannot load @napi-rs/canvas-linux-x64-gnu");
+    fs.writeFileSync(paper, "%PDF-1.4 test");
+    vi.mocked(db.update).mockClear();
+    vi.mocked(extractTextFromFilesWithLabels).mockRejectedValueOnce(runtimeError);
+
+    await processAnalysis(101, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [paper],
+      userId: 1,
+    });
+
+    const failureUpdate = vi.mocked(db.update).mock.results[0]?.value as {
+      set: ReturnType<typeof vi.fn>;
+    };
+    expect(failureUpdate.set).toHaveBeenCalledWith({
+      status: "failed",
+      errorMessage: getTemporaryOcrDiagnosticMessage(runtimeError, "pending"),
+    });
+    fs.rmSync(paper, { force: true });
+  });
+
   it("records an accurate message when the automatic refund cannot complete", async () => {
     const { db } = await import("@workspace/db");
     vi.mocked(db.update).mockClear();
@@ -617,6 +646,20 @@ describe("GET /api/analyses/:id", () => {
     expect(res.body.errorMessage).toBe(
       getAnalysisFailureMessageWithRefund("file_missing", "confirmed"),
     );
+  });
+
+  it("returns the temporary OCR diagnostic to the analysis owner", async () => {
+    const runtimeError = new Error("Canvas binary cannot be loaded");
+    dbState.analysis = {
+      ...dbState.analysis!,
+      status: "failed",
+      errorMessage: getTemporaryOcrDiagnosticMessage(runtimeError, "confirmed"),
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+    expect(res.status).toBe(200);
+    expect(res.body.errorMessage).toContain("[Temporary OCR diagnostic]");
+    expect(res.body.errorMessage).toContain("Canvas binary cannot be loaded");
   });
 });
 

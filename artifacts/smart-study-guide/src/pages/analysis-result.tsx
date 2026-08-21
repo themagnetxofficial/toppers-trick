@@ -179,7 +179,7 @@ export default function AnalysisResultPage() {
         <CardContent className="p-12 text-center flex flex-col items-center gap-4">
           <AlertTriangle className="h-12 w-12 text-destructive mb-2" />
           <h2 className="text-xl font-bold font-serif text-destructive">Analysis Failed</h2>
-          <p className="text-muted-foreground">
+          <p className="whitespace-pre-wrap break-words text-left font-mono text-xs leading-relaxed text-muted-foreground">
             {analysis.errorMessage || "Something went wrong while analyzing your papers."}
           </p>
           <Button

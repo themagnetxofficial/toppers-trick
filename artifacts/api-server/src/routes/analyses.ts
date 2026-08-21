@@ -35,7 +35,9 @@ import {
   AnalysisFailureStage,
   getAnalysisFailureMessage,
   getAnalysisFailureMessageWithRefund,
+  getTemporaryOcrDiagnosticMessage,
   isSafeAnalysisFailureMessage,
+  isTemporaryOcrDiagnosticMessage,
 } from "../lib/analysisFailure";
 import { inspectStorageDirectory, inspectStoredFile } from "../lib/fileStorage";
 
@@ -342,10 +344,13 @@ export async function processAnalysis(
       "Analysis failed",
     );
 
-    const pendingRefundMessage = getAnalysisFailureMessageWithRefund(
-      failureStage,
-      "pending",
-    );
+    const shouldStoreTemporaryOcrDiagnostic =
+      failureStage === "text_extraction" && !(err instanceof AnalysisProcessingError);
+    const getPersistedFailureMessage = (refundState: "pending" | "confirmed" | "unconfirmed") =>
+      shouldStoreTemporaryOcrDiagnostic
+        ? getTemporaryOcrDiagnosticMessage(err, refundState)
+        : getAnalysisFailureMessageWithRefund(failureStage, refundState);
+    const pendingRefundMessage = getPersistedFailureMessage("pending");
     let failureStatePersisted = false;
 
     // Persist a terminal state before attempting the refund, so a temporary
@@ -382,10 +387,7 @@ export async function processAnalysis(
         await db
           .update(analysesTable)
           .set({
-            errorMessage: getAnalysisFailureMessageWithRefund(
-              failureStage,
-              "confirmed",
-            ),
+            errorMessage: getPersistedFailureMessage("confirmed"),
           })
           .where(eq(analysesTable.id, analysisId));
       } catch (confirmationErr) {
@@ -399,10 +401,7 @@ export async function processAnalysis(
         await db
           .update(analysesTable)
           .set({
-            errorMessage: getAnalysisFailureMessageWithRefund(
-              failureStage,
-              "unconfirmed",
-            ),
+            errorMessage: getPersistedFailureMessage("unconfirmed"),
           })
           .where(eq(analysesTable.id, analysisId));
       } catch (refundFailureUpdateErr) {
@@ -447,7 +446,9 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
       yearsAnalyzed: analysis.yearsAnalyzed,
       status: analysis.status,
       errorMessage:
-        analysis.status === "failed" && isSafeAnalysisFailureMessage(analysis.errorMessage)
+        analysis.status === "failed" &&
+        (isSafeAnalysisFailureMessage(analysis.errorMessage) ||
+          isTemporaryOcrDiagnosticMessage(analysis.errorMessage))
           ? analysis.errorMessage
           : analysis.status === "failed"
             ? getAnalysisFailureMessage("unknown")

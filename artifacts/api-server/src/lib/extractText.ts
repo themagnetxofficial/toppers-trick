@@ -147,7 +147,7 @@ async function extractTextViaPdfParseOcr(filePath: string): Promise<string> {
       return await recognizeRenderedPdfPages(parser, info.total, filePath);
     } catch (err) {
       logger.error({ err, filePath }, "OCR from pdf-parse PDF pages failed");
-      return "";
+      throw err;
     } finally {
       await parser?.destroy().catch(() => undefined);
     }
@@ -180,7 +180,7 @@ async function extractTextViaPopplerOcr(filePath: string): Promise<string> {
       );
     } catch (err) {
       logger.error({ err, filePath }, "OCR from scanned PDF failed");
-      return "";
+      throw err;
     } finally {
       // Clean up temp page images
       try {
@@ -201,7 +201,7 @@ async function extractFromImage(filePath: string): Promise<string> {
       return await recognizeImagesWithOcr([filePath], filePath);
     } catch (err) {
       logger.error({ err, filePath }, "OCR extraction from image failed");
-      return "";
+      throw err;
     }
   });
 }
@@ -231,8 +231,33 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
         { filePath, textLen: text.length },
         "PDF has little/no selectable text — falling back to OCR"
       );
-      const ocrText = await extractTextViaPdfParseOcr(filePath);
-      return ocrText || extractTextViaPopplerOcr(filePath);
+      let renderedOcrError: unknown;
+      try {
+        const ocrText = await extractTextViaPdfParseOcr(filePath);
+        if (ocrText) return ocrText;
+      } catch (err) {
+        renderedOcrError = err;
+      }
+
+      try {
+        const fallbackOcrText = await extractTextViaPopplerOcr(filePath);
+        if (fallbackOcrText) return fallbackOcrText;
+      } catch (fallbackErr) {
+        if (renderedOcrError instanceof Error) {
+          throw new Error(
+            `Both portable PDF OCR and the Poppler fallback failed for ${path.basename(filePath)}. ` +
+              `Fallback error: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`,
+            { cause: renderedOcrError },
+          );
+        }
+        throw fallbackErr;
+      }
+
+      if (renderedOcrError) throw renderedOcrError;
+
+      throw new Error(
+        `OCR completed for ${path.basename(filePath)} but returned no readable text.`,
+      );
     }
 
     return text;
