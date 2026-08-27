@@ -454,7 +454,7 @@ export default function AnalyzePage() {
               {HINGLISH_MESSAGES[messageIndex]}
             </h2>
             <p className="text-muted-foreground text-lg max-w-sm">
-              Please don't close this window. Your personalized study strategy is being generated.
+              Analysis mein 2–5 minute lag sakte hain. Please page band na karein — hum aapke papers ko dhyan se analyze kar rahe hain.
             </p>
           </CardContent>
         </Card>

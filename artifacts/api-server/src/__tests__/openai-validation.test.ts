@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildPaperPromptContent, validateAiAnalysisResult } from "../lib/openai";
+import {
+  applyTopicRepairPatch,
+  buildPaperPromptContent,
+  getTopicQualityIssues,
+  mergeAdditionalTopics,
+  validateAiAnalysisResult,
+} from "../lib/openai";
 
 describe("validateAiAnalysisResult", () => {
   it("rejects a response with no usable topics", () => {
@@ -68,5 +74,172 @@ describe("validateAiAnalysisResult", () => {
 
     expect(result.years_analyzed).toEqual(["Paper 1", "Paper 2", "Paper 3"]);
     expect(result.topics[0].years_appeared).toEqual(["Paper 1"]);
+  });
+});
+
+describe("incremental topic correction helpers", () => {
+  const makeTopic = (topic_name: string) =>
+    ({
+      topic_name,
+      priority: "Low",
+      frequency: 1,
+      years_appeared: ["Paper 1"],
+      confidence_level: "Low",
+      marks_weightage: "5 marks",
+      question_type_breakdown: {
+        mcq: "None",
+        short: "1",
+        long: "None",
+        case_study: "None",
+      },
+      study_note: {
+        kya_padhna_hai:
+          "- Named definition\n- Named comparison\n- Named format\n- Applied scenario",
+        kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
+        repeat_pattern: "Ek paper mein dikha.",
+      },
+      key_terms: ["named term"],
+    }) as any;
+
+  it("keeps only distinct additions when incrementally filling a topic shortfall", () => {
+    const merged = mergeAdditionalTopics(
+      [makeTopic("Meeting Agenda")],
+      [
+        makeTopic("meeting-agenda"),
+        makeTopic("Minutes of Meeting: Format and Resolution Recording"),
+        makeTopic("Minutes of Meeting: Format and Resolution Recording"),
+      ],
+    );
+
+    expect(merged.map((topic) => topic.topic_name)).toEqual([
+      "Meeting Agenda",
+      "Minutes of Meeting: Format and Resolution Recording",
+    ]);
+  });
+
+  it("still flags the merged result for stronger fallback when additions are insufficient", () => {
+    const result = {
+      subject: "Business Communication",
+      years_analyzed: ["Paper 1", "Paper 2", "Paper 3", "Paper 4"],
+      topics: Array.from({ length: 17 }, (_, index) =>
+        makeTopic(`Specific topic ${index + 1}`),
+      ),
+      related_topic_pairs: [],
+      overall_strategy_tip: "Bas Pass Hona Hai: Specific topic 1 aur Specific topic 2 padho.",
+    } as any;
+
+    expect(getTopicQualityIssues(result, 4)).toContain(
+      "Returned 17 topics, but this 4-paper analysis requires at least 18 granular topics.",
+    );
+  });
+
+  it("flags broad titles that end in generic labels even when the subject differs", () => {
+    const result = {
+      subject: "Business Communication",
+      years_analyzed: ["Paper 1", "Paper 2", "Paper 3", "Paper 4"],
+      topics: [
+        makeTopic("Business Letter Overview"),
+        makeTopic("Email Definition"),
+        makeTopic("Business Letter Types and Purposes"),
+      ],
+      related_topic_pairs: [],
+      overall_strategy_tip: "Bas Pass Hona Hai: Business Letter Types and Purposes padho.",
+    } as any;
+
+    expect(getTopicQualityIssues(result, 4)).toContain(
+      'These topic names are vague rather than exam-usable: "Business Letter Overview", "Email Definition".',
+    );
+  });
+
+  it("does not make paper-summary coverage a blocking quality check", () => {
+    const result = {
+      subject: "Law",
+      years_analyzed: ["Paper 1", "Paper 2", "Paper 3", "Paper 4"],
+      paper_summaries: [
+        {
+          paper: "Paper 3",
+          summary: "Contract-law paper.",
+          question_count: 3,
+          distinctive_topics: [
+            "Consideration: Definition & Unlawful Cases",
+            "Rights of Finder of Goods",
+          ],
+        },
+      ],
+      topics: [
+        ...Array.from({ length: 18 }, (_, index) =>
+          makeTopic(`Specific Law Topic ${index + 1}`),
+        ),
+      ],
+      related_topic_pairs: [],
+      overall_strategy_tip:
+        "Bas Pass Hona Hai: Specific Law Topic 1 aur Specific Law Topic 2 padho.",
+    } as any;
+
+    expect(getTopicQualityIssues(result, 4)).toEqual([]);
+  });
+
+  it("applies only named replacements while preserving accepted topics and adding distinct ones", () => {
+    const original = {
+      subject: "Business Communication",
+      years_analyzed: ["Paper 1", "Paper 2", "Paper 3", "Paper 4"],
+      topics: [
+        makeTopic("Oral Communication"),
+        makeTopic("Meeting Agenda"),
+      ],
+      related_topic_pairs: [],
+      overall_strategy_tip: "Old strategy",
+    } as any;
+
+    const repaired = applyTopicRepairPatch(original, {
+      replacements: [
+        {
+          current_topic_name: "oral communication",
+          topic: makeTopic("Oral Communication: definition and two sides"),
+        },
+        {
+          current_topic_name: "Unknown topic",
+          topic: makeTopic("Should not be inserted"),
+        },
+      ],
+      topics: [
+        makeTopic("Minutes of Meeting: resolutions and format"),
+        makeTopic("meeting-agenda"),
+      ],
+      overall_strategy_tip: "Bas Pass Hona Hai: Meeting Agenda padho.",
+    });
+
+    expect(repaired.topics.map((topic) => topic.topic_name)).toEqual([
+      "Oral Communication: definition and two sides",
+      "Meeting Agenda",
+      "Minutes of Meeting: resolutions and format",
+    ]);
+    expect(repaired.overall_strategy_tip).toBe(
+      "Bas Pass Hona Hai: Meeting Agenda padho.",
+    );
+  });
+
+  it("rejects a replacement that would collide with another accepted topic", () => {
+    const original = {
+      subject: "Business Communication",
+      years_analyzed: ["Paper 1"],
+      topics: [makeTopic("Meeting Agenda"), makeTopic("Minutes of Meeting")],
+      related_topic_pairs: [],
+      overall_strategy_tip: "Bas Pass Hona Hai: Meeting Agenda padho.",
+    } as any;
+
+    const repaired = applyTopicRepairPatch(original, {
+      replacements: [
+        {
+          current_topic_name: "Meeting Agenda",
+          topic: makeTopic("Minutes of Meeting"),
+        },
+      ],
+    });
+
+    expect(repaired.topics.map((topic) => topic.topic_name)).toEqual([
+      "Meeting Agenda",
+      "Minutes of Meeting",
+    ]);
   });
 });
