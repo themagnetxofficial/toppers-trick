@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 
 describe("OpenAI vision transcription", () => {
-  it("uses gpt-5-nano and sends one labeled image at a time", async () => {
+  it("uses gpt-5-nano and includes every labeled image", async () => {
     const text = await transcribeImagesWithVision([
       {
         data: Buffer.from("first image"),
@@ -57,7 +57,48 @@ describe("OpenAI vision transcription", () => {
     );
   });
 
-  it("rejects an empty vision response instead of treating it as usable text", async () => {
+  it("limits concurrent vision calls and preserves input order when responses finish out of order", async () => {
+    const pending: Array<{ label: string; resolve: (content: string) => void }> = [];
+    create.mockImplementation((request) => {
+      const content = request.messages[0].content;
+      const prompt = content.find((item: { type: string }) => item.type === "text") as {
+        text: string;
+      };
+      const label = prompt.text.match(/from (.+?)\. Return only/)?.[1] ?? "unknown";
+
+      return new Promise((resolve) => {
+        pending.push({
+          label,
+          resolve: (responseContent) =>
+            resolve({ choices: [{ message: { content: responseContent } }] }),
+        });
+      });
+    });
+
+    const transcription = transcribeImagesWithVision([
+      { data: Buffer.from("one"), mimeType: "image/png", label: "page 1" },
+      { data: Buffer.from("two"), mimeType: "image/png", label: "page 2" },
+      { data: Buffer.from("three"), mimeType: "image/png", label: "page 3" },
+      { data: Buffer.from("four"), mimeType: "image/png", label: "page 4" },
+    ]);
+
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(3));
+    expect(pending.map((item) => item.label)).toEqual(["page 1", "page 2", "page 3"]);
+
+    pending.find((item) => item.label === "page 2")!.resolve("Second page");
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(4));
+    expect(pending.map((item) => item.label)).toContain("page 4");
+
+    pending.find((item) => item.label === "page 1")!.resolve("First page");
+    pending.find((item) => item.label === "page 3")!.resolve("Third page");
+    pending.find((item) => item.label === "page 4")!.resolve("Fourth page");
+
+    await expect(transcription).resolves.toBe(
+      "First page\n\nSecond page\n\nThird page\n\nFourth page",
+    );
+  });
+
+  it("retries an empty vision response before accepting recovered text", async () => {
     create.mockResolvedValueOnce({ choices: [{ message: { content: "" } }] });
 
     await expect(
@@ -68,7 +109,32 @@ describe("OpenAI vision transcription", () => {
           label: "page 1",
         },
       ]),
-    ).rejects.toThrow("returned no transcription");
+    ).resolves.toBe("1. Define the law of demand.");
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the secondary vision model after both primary attempts return empty text", async () => {
+    create
+      .mockResolvedValueOnce({ choices: [{ message: { content: "" } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: "" } }] })
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: "Recovered by secondary OCR." } }],
+      });
+
+    await expect(
+      transcribeImagesWithVision([
+        {
+          data: Buffer.from("image"),
+          mimeType: "image/png",
+          label: "page 1",
+        },
+      ]),
+    ).resolves.toBe("Recovered by secondary OCR.");
+
+    expect(create).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ model: "gpt-4o-mini" }),
+    );
   });
 
   it("retries one transient vision request failure before failing the paper", async () => {

@@ -116,6 +116,20 @@ function priorityAccentClass(p: string) {
   }
 }
 
+function rankTopics(topics: TopicData[]): TopicData[] {
+  const priorityRank: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
+  return [...topics].sort((a, b) => {
+    const priorityDifference =
+      (priorityRank[getPriority(a)] ?? 3) - (priorityRank[getPriority(b)] ?? 3);
+    if (priorityDifference !== 0) return priorityDifference;
+    return getFrequency(b) - getFrequency(a);
+  });
+}
+
+function topicCutoff(total: number, percentage: number): number {
+  return Math.max(1, Math.min(total, Math.round(total * percentage)));
+}
+
 export default function AnalysisResultPage() {
   const params = useParams();
   const id = parseInt(params.id || "0", 10);
@@ -363,31 +377,29 @@ export default function AnalysisResultPage() {
 
       {/* Strategy Tiers */}
       {allTopics.length > 0 && (() => {
-        const high = allTopics.filter(t => getPriority(t) === 'High').sort((a, b) => getFrequency(b) - getFrequency(a));
-        const medium = allTopics.filter(t => getPriority(t) === 'Medium').sort((a, b) => getFrequency(b) - getFrequency(a));
-        const low = allTopics.filter(t => getPriority(t) === 'Low').sort((a, b) => getFrequency(b) - getFrequency(a));
         const total = allTopics.length;
-        const totalFreq = allTopics.reduce((s, t) => s + getFrequency(t), 0) || 1;
-        const freqCov = (ts: TopicData[]) => Math.round(ts.reduce((s, t) => s + getFrequency(t), 0) / totalFreq * 100);
+        const rankedTopics = rankTopics(allTopics);
+        const passCount = topicCutoff(total, 0.48);
+        const averageCount = topicCutoff(total, 0.75);
 
         const tiers = [
           {
             emoji: '🎯', title: 'Bas Pass Hona Hai', subtitle: 'Just want to pass',
-            topics: high, count: high.length, coverage: freqCov(high),
+            topics: rankedTopics.slice(0, passCount), count: passCount, coverage: 48,
             color: 'border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/30',
             badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
             dot: 'bg-red-500',
           },
           {
             emoji: '📈', title: 'Average Score Chahiye', subtitle: 'Want a decent score',
-            topics: [...high, ...medium], count: high.length + medium.length, coverage: freqCov([...high, ...medium]),
+            topics: rankedTopics.slice(0, averageCount), count: averageCount, coverage: 75,
             color: 'border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900/30',
             badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
             dot: 'bg-amber-500',
           },
           {
-            emoji: '🏆', title: 'Top Karna Hai', subtitle: 'Want to top the exam',
-            topics: [...high, ...medium, ...low], count: total, coverage: 100,
+            emoji: '🏆', title: 'Best Coverage', subtitle: 'Want to top the exam',
+            topics: rankedTopics, count: total, coverageLabel: 'Maximum Coverage',
             color: 'border-green-200 bg-green-50 dark:bg-green-900/10 dark:border-green-900/30',
             badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
             dot: 'bg-green-500',
@@ -408,7 +420,7 @@ export default function AnalysisResultPage() {
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-2xl">{tier.emoji}</span>
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tier.badge}`}>
-                        {tier.count}/{total} topics · ~{tier.coverage}%
+                        {tier.count}/{total} topics · {tier.coverageLabel ?? `~${tier.coverage}% coverage`}
                       </span>
                     </div>
                     <CardTitle className="text-base font-bold font-serif mt-1">{tier.title}</CardTitle>
