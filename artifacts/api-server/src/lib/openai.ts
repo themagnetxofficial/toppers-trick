@@ -1413,39 +1413,28 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
       validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
       qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
       if (qualityIssues.length > 0) {
+        degraded = true;
         logger.warn(
           { issues: qualityIssues, topicCount: parsed.topics.length },
           strictFivePaperQuality
-            ? "Five-paper compact topic patch still has blocking quality issues"
-            : "Compact topic patch completed; accepting the best parseable result despite remaining quality issues",
+            ? "Multi-paper compact topic patch still has quality issues; returning a degraded result"
+            : "Compact topic patch completed; accepting the best parseable result with quality warnings",
         );
-        if (strictFivePaperQuality) {
-          throw new Error(
-            `Five-paper analysis did not meet quality requirements after repair: ${qualityIssues
-              .slice(0, 4)
-              .join(" ")}`,
-          );
-        }
       }
     }
   } catch (err) {
     if (!(err instanceof AnalysisDeadlineExceededError)) throw err;
     degraded = true;
     qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
-    if (strictFivePaperQuality && qualityIssues.length > 0) {
-      throw new Error(
-        `Five-paper analysis deadline reached before a complete quality-checked result was available: ${qualityIssues
-          .slice(0, 4)
-          .join(" ")}`,
-      );
-    }
     logger.warn(
       {
         analysisId: params.analysisId,
         topicCount: parsed.topics.length,
         qualityIssues,
       },
-      "Analysis deadline reached; returning the best schema-valid result",
+      strictFivePaperQuality
+        ? "Multi-paper analysis deadline reached; returning the best schema-valid degraded result"
+        : "Analysis deadline reached; returning the best schema-valid result",
     );
   }
   logger.info(

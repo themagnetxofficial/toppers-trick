@@ -278,25 +278,48 @@ describe("hard-capped compact repair flow", () => {
     );
   });
 
-  it("fails a five-paper run when the compact repair remains materially incomplete", async () => {
+  it("returns a degraded four-paper result instead of failing after an incomplete repair", async () => {
+    const fourPapers = ["Paper 1", "Paper 2", "Paper 3", "Paper 4"];
+    createCompletion
+      .mockResolvedValueOnce(completion(makeResult(13), 100))
+      .mockResolvedValueOnce(completion({ topics: [] }, 50));
+
+    const output = await runAnalysis({
+      yearLabels: fourPapers,
+      papers: fourPapers.map((label) => ({
+        label,
+        text: `${label}: Discuss named business communication concepts.`,
+      })),
+    });
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(createCompletion.mock.calls[0]![0].model).toBe("gpt-5-mini");
+    expect(output.degraded).toBe(true);
+    expect(output.result.topics).toHaveLength(13);
+    expect(output.qualityIssues).toContain(
+      "Returned 13 topics, but this 4-paper analysis requires at least 18 granular topics.",
+    );
+  });
+
+  it("returns a degraded five-paper result when the compact repair remains incomplete", async () => {
     const fivePapers = ["Paper 1", "Paper 2", "Paper 3", "Paper 4", "Paper 5"];
     createCompletion
       .mockResolvedValueOnce(completion(makeFivePaperResult(13), 100))
       .mockResolvedValueOnce(completion({ topics: [] }, 50));
 
-    await expect(
-      runAnalysis({
-        subject: "Biology",
-        yearLabels: fivePapers,
-        papers: fivePapers.map((label) => ({
-          label,
-          text: `${label}: Explain the named Biology process in detail.`,
-        })),
-      }),
-    ).rejects.toThrow("did not meet quality requirements after repair");
+    const output = await runAnalysis({
+      subject: "Biology",
+      yearLabels: fivePapers,
+      papers: fivePapers.map((label) => ({
+        label,
+        text: `${label}: Explain the named Biology process in detail.`,
+      })),
+    });
 
     expect(createCompletion).toHaveBeenCalledTimes(2);
     expect(createCompletion.mock.calls[1]![0].model).toBe("gpt-5-mini");
+    expect(output.degraded).toBe(true);
+    expect(output.qualityIssues.length).toBeGreaterThan(0);
   });
 
   it("repairs when a paper summary names an uncovered distinctive topic", async () => {
