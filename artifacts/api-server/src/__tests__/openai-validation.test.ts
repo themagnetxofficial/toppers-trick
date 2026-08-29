@@ -27,7 +27,20 @@ describe("validateAiAnalysisResult", () => {
     const result = {
       subject: "Marketing",
       years_analyzed: undefined,
-      topics: [{ topic_name: "Market segmentation" }],
+      topics: [
+        {
+          topic_name: "Market segmentation",
+          years_appeared: ["Paper 1"],
+          study_note: {
+            kya_padhna_hai: "- Segmentation bases\n- Demographic variables\n- Geographic variables\n- Behavioral variables",
+            kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
+            repeat_pattern: "Paper 1 mein dikha.",
+          },
+          paper_question_evidence: [
+            { paper: "Paper 1", evidence: "Define market segmentation" },
+          ],
+        },
+      ],
       related_topic_pairs: undefined,
       overall_strategy_tip: "Focus on core concepts.",
     } as unknown as Parameters<typeof validateAiAnalysisResult>[0];
@@ -64,6 +77,14 @@ describe("validateAiAnalysisResult", () => {
         {
           topic_name: "Market segmentation",
           years_appeared: ["Paper 1", "Not an uploaded paper"],
+          study_note: {
+            kya_padhna_hai: "- Segmentation bases\n- Demographic variables\n- Geographic variables\n- Behavioral variables",
+            kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
+            repeat_pattern: "Paper 1 mein dikha.",
+          },
+          paper_question_evidence: [
+            { paper: "Paper 1", evidence: "Define market segmentation" },
+          ],
         },
       ],
       related_topic_pairs: [],
@@ -98,6 +119,9 @@ describe("incremental topic correction helpers", () => {
         kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
         repeat_pattern: "Ek paper mein dikha.",
       },
+      paper_question_evidence: [
+        { paper: "Paper 1", evidence: "Discuss named business communication concepts" },
+      ],
       key_terms: ["named term"],
     }) as any;
 
@@ -149,6 +173,33 @@ describe("incremental topic correction helpers", () => {
     expect(getTopicQualityIssues(result, 4)).toContain(
       'These topic names are vague rather than exam-usable: "Business Letter Overview", "Email Definition".',
     );
+  });
+
+  it("removes topics without complete notes or quoted evidence from the source paper", () => {
+    const unsupported = makeTopic("Invented topic");
+    unsupported.paper_question_evidence = [
+      { paper: "Paper 1", evidence: "This phrase is not in the paper" },
+    ];
+    const missingNotes = makeTopic("Missing notes topic");
+    missingNotes.study_note = {} as any;
+    const result = {
+      subject: "Business Communication",
+      years_analyzed: ["Paper 1"],
+      topics: [makeTopic("Real topic"), unsupported, missingNotes],
+      related_topic_pairs: [],
+      overall_strategy_tip: "Bas Pass Hona Hai: Real topic padho.",
+    } as any;
+
+    validateAiAnalysisResult(result, ["Paper 1"], [
+      {
+        label: "Paper 1",
+        text: "Q1. Discuss named business communication concepts.",
+      },
+    ]);
+
+    expect(result.topics.map((topic: any) => topic.topic_name)).toEqual([
+      "Real topic",
+    ]);
   });
 
   it("does not make paper-summary coverage a blocking quality check", () => {
