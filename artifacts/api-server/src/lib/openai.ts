@@ -435,7 +435,7 @@ function hasVerifiedPaperQuestionEvidence(
             typeof item?.paper === "string" &&
             validYears.has(item.paper) &&
             typeof item?.evidence === "string" &&
-            item.evidence.trim().length >= 12,
+            normalizeEvidenceText(item.evidence).split(/\s+/).filter(Boolean).length >= 3,
         )
         .map((item) => ({
           paper: item.paper.trim(),
