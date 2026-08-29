@@ -263,6 +263,11 @@ export interface QuestionTypeBreakdown {
   case_study: string;
 }
 
+export interface PaperQuestionEvidence {
+  paper: string;
+  evidence: string;
+}
+
 export interface TopicResult {
   topic_name: string;
   priority: "High" | "Medium" | "Low";
@@ -276,6 +281,7 @@ export interface TopicResult {
     kaise_poochha_jaata_hai: string;
     repeat_pattern: string;
   };
+  paper_question_evidence?: PaperQuestionEvidence[];
   key_terms: string[];
 }
 
@@ -394,6 +400,75 @@ export function mergeAdditionalTopics(
   return [...existingTopics, ...uniqueAdditions];
 }
 
+function normalizeEvidenceText(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function containsQuotedQuestionPhrase(evidence: string, paperText: string): boolean {
+  const evidenceWords = normalizeEvidenceText(evidence).split(/\s+/).filter(Boolean);
+  if (evidenceWords.length < 3) return false;
+
+  const normalizedPaper = normalizeEvidenceText(paperText);
+  const phraseLength = Math.min(6, evidenceWords.length);
+  for (let length = phraseLength; length >= 3; length -= 1) {
+    for (let start = 0; start + length <= evidenceWords.length; start += 1) {
+      const phrase = evidenceWords.slice(start, start + length).join(" ");
+      if (normalizedPaper.includes(phrase)) return true;
+    }
+  }
+  return false;
+}
+
+function hasVerifiedPaperQuestionEvidence(
+  topic: TopicResult,
+  fallbackYears: string[],
+  sourcePapers?: Array<{ label: string; text: string }>,
+): boolean {
+  const validYears = new Set(fallbackYears);
+  const evidence = Array.isArray(topic.paper_question_evidence)
+    ? topic.paper_question_evidence
+        .filter(
+          (item) =>
+            typeof item?.paper === "string" &&
+            validYears.has(item.paper) &&
+            typeof item?.evidence === "string" &&
+            item.evidence.trim().length >= 12,
+        )
+        .map((item) => ({
+          paper: item.paper.trim(),
+          evidence: item.evidence.trim(),
+        }))
+    : [];
+
+  if (evidence.length === 0) return false;
+
+  const sourceByLabel = sourcePapers
+    ? new Map(sourcePapers.map((paper) => [paper.label, paper.text || ""]))
+    : undefined;
+
+  return evidence.some((item) => {
+    if (!topic.years_appeared.includes(item.paper)) return false;
+    if (!sourceByLabel) return true;
+    const paperText = sourceByLabel.get(item.paper);
+    return paperText !== undefined && containsQuotedQuestionPhrase(item.evidence, paperText);
+  });
+}
+
+function hasNonEmptyStudyNotes(topic: TopicResult): boolean {
+  const note = topic.study_note;
+  return (
+    typeof note?.kya_padhna_hai === "string" &&
+    note.kya_padhna_hai.trim().length > 0 &&
+    typeof note?.kaise_poochha_jaata_hai === "string" &&
+    note.kaise_poochha_jaata_hai.trim().length > 0 &&
+    typeof note?.repeat_pattern === "string" &&
+    note.repeat_pattern.trim().length > 0
+  );
+}
+
 interface TopicRepairPatch {
   replacements?: Array<{
     current_topic_name: string;
@@ -460,6 +535,7 @@ export function applyTopicRepairPatch(
 export function validateAiAnalysisResult(
   result: AiAnalysisResult,
   fallbackYears: string[],
+  sourcePapers?: Array<{ label: string; text: string }>,
 ): void {
   if (!result.subject?.trim() || !Array.isArray(result.topics)) {
     throw new Error("Invalid AI response schema");
@@ -493,6 +569,33 @@ export function validateAiAnalysisResult(
     } else {
       topic.years_appeared = [];
     }
+  }
+
+  const topicsBeforeEvidenceFilter = result.topics.length;
+  result.topics = result.topics.filter((topic) => {
+    const hasEvidence = hasVerifiedPaperQuestionEvidence(
+      topic,
+      fallbackYears,
+      sourcePapers,
+    );
+    const hasNotes = hasNonEmptyStudyNotes(topic);
+    return hasEvidence && hasNotes;
+  });
+  if (topicsBeforeEvidenceFilter !== result.topics.length) {
+    logger.warn(
+      {
+        removedTopicCount: topicsBeforeEvidenceFilter - result.topics.length,
+        remainingTopicCount: result.topics.length,
+        sourceVerificationEnabled: sourcePapers !== undefined,
+      },
+      "Removed AI topics without verified paper evidence and complete study notes",
+    );
+  }
+
+  if (result.topics.length === 0) {
+    throw new Error(
+      "The analysis response did not include any topics with verified paper evidence and study notes. Please try again.",
+    );
   }
 }
 
@@ -571,7 +674,10 @@ Rules:
 15. Apply this non-negotiable granularity test to every topic_name: reject it if a student would still need to study several independent, differently answerable ideas to answer the mapped questions. Names like "Business letter", "Oral communication", "Nonverbal communication", "Presentation techniques", or "Corporate communication challenges" are too broad by themselves. Use a precise composite name only when its named parts were actually tested together, such as "Business Letters: Types, Layout, Enquiry & Persuasive Letters".
 16. Do not use generic filler in kya_padhna_hai. A bullet is invalid if it could be written without reading these papers, such as "examples", "importance", "strategies", "common challenges", or "real-world use cases" by themselves. Every bullet must include at least one concrete noun, named sub-type, definition, process step, comparison, or applied scenario actually visible in a question.
 17. For the coverage audit, first make a private checklist of every visible question or separately answerable sub-question in every paper. Map each checklist item to a topic. The topic list may exceed 12 and should normally expand to 15-30 entries when that is what full coverage requires. Do not reduce the count merely to fit a preferred topic total.
-18. overall_strategy_tip must contain a clearly labeled "Bas Pass Hona Hai:" recommendation that names the exact granular topic_name values to study, explains why that set covers at least 40-50% of actual questions, and does not use an umbrella category as a substitute for multiple answerable concepts.`;
+18. For every topic, include at least one paper_question_evidence item. Its evidence must quote a short, distinctive phrase of at least 3 words from the actual question or sub-question, not a generic explanation. The paper label must be one of the provided labels, and it must also appear in years_appeared.
+19. A topic is valid only when it has verified paper_question_evidence and non-empty content in all three study_note fields. Never add a topic merely to reach a count; omit it when the papers do not support it.
+20. Before topic synthesis, scan every provided paper from beginning to end and make a private sequential checklist of every question and separately answerable sub-question. Extract each distinct tested concept from that checklist, then map each topic back to at least one checklist item and quote its evidence.
+21. overall_strategy_tip must contain a clearly labeled "Bas Pass Hona Hai:" recommendation that names the exact granular topic_name values to study, explains why that set covers at least 40-50% of actual questions, and does not use an umbrella category as a substitute for multiple answerable concepts.`;
 
   const yearsList = params.yearLabels.join(", ");
   const minimumTopicCount = getMinimumTopicCount(params.yearLabels.length);
@@ -627,6 +733,12 @@ Perform a deep analysis and return JSON in this exact format:
         "kaise_poochha_jaata_hai": "Hinglish — describe the exact question format seen across these papers",
         "repeat_pattern": "Hinglish — if same or similar question appeared in multiple years, call it out explicitly"
       },
+      "paper_question_evidence": [
+        {
+          "paper": "Paper 1",
+          "evidence": "short verbatim phrase from the mapped question"
+        }
+      ],
       "key_terms": ["term1", "term2", "term3"]
     }
   ],
@@ -650,6 +762,9 @@ Rules for this response:
 - study_note: all 3 fields required for every topic. The kya_padhna_hai field must contain exactly 4-6 concrete newline-separated bullet points beginning with "- ", each grounded in actual question phrasing or named content from the papers. This 4-6 bullet requirement applies even to Low priority topics; do not replace it with a generic summary.
 - question coverage audit: mentally map every visible question in every paper to one or more specific topics before finalizing. If any question is unmatched, create a new topic rather than broadening an unrelated topic.
 - pass-tier selection: in the "Bas Pass Hona Hai" part of overall_strategy_tip, recommend granular topics that cover at least 40-50% of actual questions with complete-answer preparation, not merely 40-50% of marks through broad topics.
+- paper_question_evidence: every topic must include at least one entry whose paper is one of the exact provided labels and whose evidence is a short verbatim phrase of at least 3 words from an actual question or separately answerable sub-question. Do not use a generic description as evidence.
+- hard evidence rule: do not return a topic if you cannot quote actual question evidence for it and provide non-empty content in all three study_note fields. Fewer real topics are better than fabricated padding.
+- systematic extraction rule: scan every provided paper sequentially, including every numbered question, option, sub-question, and case-study prompt, before deciding the final topic list. Do not stop after the first 8-10 topics.
 - mandatory topic-name test: do not return an umbrella topic such as "Business letter", "Oral communication", "Nonverbal communication", "Presentation techniques", or "Corporate communication challenges" unless the paper has only one inseparable question on that exact narrow concept. Split it into the independently answerable definitions, layouts, types, comparisons, processes, methods, barriers, case situations, or named sub-types actually asked.
 - mandatory study-bullet test: reject any kya_padhna_hai bullet that says only "examples", "importance", "strategies", "common challenges", "real-world use cases", or similarly generic advice. Every one of the 4-6 bullets must name a concrete phrase, sub-type, framework, comparison, format, or scenario from an actual paper question.
 - do not cap coverage at any lower topic total. Use 15-30 granular topics when needed to cover the papers completely.
@@ -752,7 +867,7 @@ Rules for this response:
     const missingTopicCount = Math.max(0, minimumTopicCount - acceptedTopicCount);
     const additionRequirement =
       missingTopicCount > 0
-        ? `The accepted analysis already has ${acceptedTopicCount} valid topics. Return exactly ${missingTopicCount} NEW, distinct topic objects in "topics" so the merged result reaches the ${minimumTopicCount}-topic minimum.`
+        ? `The accepted analysis already has ${acceptedTopicCount} valid topics. Return up to ${missingTopicCount} NEW, distinct topic objects in "topics" only when each one is directly supported by the paper text. Returning fewer is correct; never invent or pad topics to reach ${minimumTopicCount}.`
         : "Do not add topics unless they are required to resolve one of the listed quality failures.";
 
     return runAnalysisRequest("targeted_quality_repair", initialModel, (signal) =>
@@ -763,7 +878,7 @@ Rules for this response:
         {
           role: "system",
           content:
-            "You repair an existing exam-analysis JSON without regenerating accepted content. Return JSON only.",
+            "You repair an existing exam-analysis JSON without regenerating accepted content. Return JSON only. Every replacement or addition must include verbatim paper_question_evidence and complete non-empty study_note fields. If the papers do not support enough new topics, return fewer topics rather than padding.",
         },
         {
           role: "user",
@@ -790,7 +905,7 @@ Return ONLY this compact repair object:
   "overall_strategy_tip": "include only when its required Bas Pass Hona Hai: label is missing"
 }
 
-Do not include unchanged topics, paper summaries, related pairs, or any extra keys. Add enough NEW, distinct topics to meet the required minimum. Replace only the existing topics named by failed checks, retaining all other accepted topics.`,
+Do not include unchanged topics, paper summaries, related pairs, or any extra keys. Add only NEW, distinct topics with real quoted question evidence and complete study notes. Do not add filler to meet the topic minimum. Replace only the existing topics named by failed checks, retaining all other accepted topics.`,
         },
         { role: "assistant", content: previousJson },
         {
@@ -820,7 +935,7 @@ Do not include unchanged topics, paper summaries, related pairs, or any extra ke
     throw new Error("AI response returned invalid JSON");
   }
 
-  validateAiAnalysisResult(parsed, params.yearLabels);
+  validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
 
   let degraded = false;
   let qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
@@ -851,7 +966,7 @@ Do not include unchanged topics, paper summaries, related pairs, or any extra ke
       }
 
       parsed = applyTopicRepairPatch(parsed, repairPatch as TopicRepairPatch);
-      validateAiAnalysisResult(parsed, params.yearLabels);
+      validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
       qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
       if (qualityIssues.length > 0) {
         logger.warn(

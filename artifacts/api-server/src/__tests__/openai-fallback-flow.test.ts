@@ -38,6 +38,9 @@ function makeTopic(topicName: string): TopicResult {
       kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
       repeat_pattern: "Ek paper mein dikha.",
     },
+    paper_question_evidence: [
+      { paper: "Paper 1", evidence: "Discuss named business communication concepts" },
+    ],
     key_terms: ["named term"],
   };
 }
@@ -132,14 +135,61 @@ describe("hard-capped compact repair flow", () => {
       "Specific Topic 1 + Specific Topic 2",
     ]);
 
+    const initialRequest = createCompletion.mock.calls[0][0];
+    expect(initialRequest.messages[0].content).toContain(
+      "scan every provided paper from beginning to end",
+    );
+    expect(initialRequest.messages[1].content).toContain(
+      '"paper_question_evidence"',
+    );
+
     const patchRequest = createCompletion.mock.calls[1][0];
     expect(patchRequest.model).toBe("gpt-4o-mini");
     expect(patchRequest.messages[1].content).toContain(
       "already has 13 valid topics",
     );
     expect(patchRequest.messages[1].content).toContain(
-      "exactly 5 NEW, distinct topic objects",
+      "up to 5 NEW, distinct topic objects",
     );
+  });
+
+  it("drops fabricated or incomplete topics returned by the compact patch", async () => {
+    const initial = makeResult(17);
+    const fabricated = makeTopic("General subject knowledge");
+    fabricated.paper_question_evidence = [
+      { paper: "Paper 1", evidence: "This phrase is absent from every paper" },
+    ];
+    const incomplete = makeTopic("Topic with no notes");
+    incomplete.study_note = {} as any;
+
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(
+        completion(
+          {
+            topics: [
+              makeTopic("Genuine topic 18"),
+              fabricated,
+              incomplete,
+            ],
+          },
+          50,
+        ),
+      );
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(output.result.topics.map((topic) => topic.topic_name)).toContain(
+      "Genuine topic 18",
+    );
+    expect(output.result.topics.map((topic) => topic.topic_name)).not.toContain(
+      "General subject knowledge",
+    );
+    expect(output.result.topics.map((topic) => topic.topic_name)).not.toContain(
+      "Topic with no notes",
+    );
+    expect(output.result.topics).toHaveLength(18);
   });
 
   it("accepts the best parseable result after one patch even when quality issues remain", async () => {
