@@ -264,6 +264,8 @@ export default function AnalysisResultPage() {
   // Support both new (topics) and old (chapters) schema
   const allTopics: TopicData[] = (ai?.topics ?? ai?.chapters ?? []) as TopicData[];
   const relatedPairs: string[] = ai?.related_topic_pairs ?? ai?.cross_chapter_patterns ?? [];
+  const hasIncompleteCoverage =
+    analysis.degraded === true || (analysis.qualityIssues?.length ?? 0) > 0;
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -423,7 +425,9 @@ export default function AnalysisResultPage() {
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-2xl">{tier.emoji}</span>
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tier.badge}`}>
-                        {tier.count}/{total} topics · {tier.coverageLabel ?? `~${tier.coverage}% coverage`}
+                        {hasIncompleteCoverage
+                          ? `${total} topics found — some patterns may not be fully covered`
+                          : `${tier.count}/${total} topics · ${tier.coverageLabel ?? `~${tier.coverage}% coverage`}`}
                       </span>
                     </div>
                     <CardTitle className="text-base font-bold font-serif mt-1">{tier.title}</CardTitle>

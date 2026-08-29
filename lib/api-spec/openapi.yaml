@@ -357,6 +357,12 @@ components:
           type: ["number", "null"]
         errorMessage:
           type: ["string", "null"]
+        degraded:
+          type: boolean
+        qualityIssues:
+          type: array
+          items:
+            type: string
         aiResponse:
           oneOf:
             - $ref: "#/components/schemas/AiAnalysisResult"

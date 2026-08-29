@@ -30,6 +30,8 @@ export interface Analysis {
   processingTotal?: number | null;
   /** @nullable */
   errorMessage?: string | null;
+  degraded?: boolean;
+  qualityIssues?: string[];
   aiResponse?: AiAnalysisResult | LegacyAiAnalysisResult;
   hasPdf?: boolean;
   createdAt: Date;

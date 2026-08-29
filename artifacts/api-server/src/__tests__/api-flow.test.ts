@@ -47,6 +47,8 @@ const { dbState, uploadsDir } = vi.hoisted(() => {
         aiResponseJson: null,
         errorMessage: null,
         yearsAnalyzed: null,
+        degraded: false,
+        qualityIssues: [],
         createdAt: new Date().toISOString(),
       } as Record<string, unknown>,
     },
@@ -221,6 +223,8 @@ vi.mock("../lib/openai", () => ({
     },
     inputTokens: 100,
     outputTokens: 200,
+      degraded: false,
+      qualityIssues: [],
   }),
 }));
 
@@ -539,6 +543,60 @@ describe("background analysis diagnostics", () => {
     fs.rmSync(paper, { force: true });
   });
 
+  it("persists degraded status and quality issues with a completed analysis", async () => {
+    const { db } = await import("@workspace/db");
+    const { analyzeWithAI } = await import("../lib/openai");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const paper = path.join(uploadsDir, "degraded-analysis.pdf");
+    fs.writeFileSync(paper, "%PDF-1.4 test");
+    vi.mocked(db.update).mockClear();
+    vi.mocked(extractTextFromFilesWithLabels).mockResolvedValueOnce({
+      text: "--- Year: Paper 1 ---\nQuestion 1: Describe Newton's laws (10 marks)",
+      yearLabels: ["Paper 1"],
+      papers: [
+        {
+          label: "Paper 1",
+          text: "Question 1: Describe Newton's laws of motion in detail (10 marks).",
+        },
+      ],
+      extractedCharacterCount: 59,
+    });
+    vi.mocked(analyzeWithAI).mockResolvedValueOnce({
+      result: {
+        subject: "Physics",
+        years_analyzed: ["Paper 1"],
+        topics: [],
+        related_topic_pairs: [],
+        overall_strategy_tip: "Start with the available topics.",
+      },
+      inputTokens: 100,
+      outputTokens: 200,
+      usage: [],
+      degraded: true,
+      qualityIssues: ["The result did not fully cover the paper."],
+    });
+
+    await processAnalysis(102, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [paper],
+      userId: 1,
+    });
+
+    const finalUpdate = vi.mocked(db.update).mock.results.at(-1)?.value as {
+      set: ReturnType<typeof vi.fn>;
+    };
+    expect(finalUpdate.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        degraded: true,
+        qualityIssues: ["The result did not fully cover the paper."],
+      }),
+    );
+    expect(fs.existsSync(paper)).toBe(false);
+  });
+
   it("records an accurate message when the automatic refund cannot complete", async () => {
     const { db } = await import("@workspace/db");
     vi.mocked(db.update).mockClear();
@@ -582,6 +640,8 @@ describe("GET /api/analyses/:id", () => {
       pdfFilePath: null,
       aiResponseJson: null,
       errorMessage: null,
+      degraded: false,
+      qualityIssues: [],
       createdAt: new Date().toISOString(),
     };
   });
@@ -682,12 +742,16 @@ describe("GET /api/analyses/:id", () => {
         related_topic_pairs: [],
         overall_strategy_tip: "Revise the stages and practice diagram-based comparisons.",
       },
+      degraded: true,
+      qualityIssues: ["One distinctive topic still needs verification."],
     };
 
     const res = await request(app).get("/api/analyses/42");
     expect(res.status).toBe(200);
     expect(res.body.aiResponse.years_analyzed).toEqual(["Paper 1"]);
     expect(res.body.aiResponse.topics[0].topic_name).toBe("Mitosis and meiosis");
+    expect(res.body.degraded).toBe(true);
+    expect(res.body.qualityIssues).toEqual(["One distinctive topic still needs verification."]);
   });
 
   it("returns an allowlisted file-storage failure message", async () => {

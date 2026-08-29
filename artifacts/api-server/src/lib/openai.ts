@@ -671,7 +671,7 @@ function getMinimumTopicCount(paperCount: number): number {
 export function getAnalysisModelForPaperCount(
   paperCount: number,
 ): "gpt-4o-mini" | "gpt-5-mini" {
-  return paperCount >= 5 ? "gpt-5-mini" : "gpt-4o-mini";
+  return paperCount >= 4 ? "gpt-5-mini" : "gpt-4o-mini";
 }
 
 export function getTopicQualityIssues(
@@ -706,6 +706,7 @@ export function getTopicQualityIssues(
   });
   issues.push(...invalidStudyNotes);
   issues.push(...getConcreteStudyNoteIssues(result));
+  issues.push(...getUncoveredDistinctiveTopicIssues(result));
 
   if (!/Bas Pass Hona Hai\s*:/i.test(result.overall_strategy_tip ?? "")) {
     issues.push(
@@ -755,6 +756,26 @@ function normalizeTopicName(topicName: string): string {
     .toLocaleLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function getUncoveredDistinctiveTopicIssues(result: AiAnalysisResult): string[] {
+  const topicNames = result.topics.map((t) => normalizeTopicName(t.topic_name));
+  const issues: string[] = [];
+  for (const summary of result.paper_summaries ?? []) {
+    for (const dt of summary.distinctive_topics ?? []) {
+      if (typeof dt !== "string" || !dt.trim()) continue;
+      const normalized = normalizeTopicName(dt);
+      const covered = topicNames.some(
+        (tn) => tn.includes(normalized) || normalized.includes(tn),
+      );
+      if (!covered) {
+        issues.push(
+          `"${dt}" was listed as a distinctive topic in ${summary.paper}'s summary but has no matching entry in topics — add it as a real topic if the paper text supports it.`,
+        );
+      }
+    }
+  }
+  return issues;
 }
 
 /**
@@ -1360,7 +1381,7 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
   validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
 
   let degraded = false;
-  const strictFivePaperQuality = params.yearLabels.length >= 5;
+  const strictFivePaperQuality = params.yearLabels.length >= 4;
   let qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
   try {
     if (qualityIssues.length > 0) {

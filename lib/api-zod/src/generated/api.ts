@@ -98,6 +98,8 @@ export const CreateAnalysisResponse = zod.object({
   "processingCurrent": zod.number().nullish(),
   "processingTotal": zod.number().nullish(),
   "errorMessage": zod.string().nullish(),
+  "degraded": zod.boolean().optional(),
+  "qualityIssues": zod.array(zod.string()).optional(),
   "aiResponse": zod.union([zod.object({
   "subject": zod.string(),
   "years_analyzed": zod.array(zod.string()),
@@ -170,6 +172,8 @@ export const GetAnalysisResponse = zod.object({
   "processingCurrent": zod.number().nullish(),
   "processingTotal": zod.number().nullish(),
   "errorMessage": zod.string().nullish(),
+  "degraded": zod.boolean().optional(),
+  "qualityIssues": zod.array(zod.string()).optional(),
   "aiResponse": zod.union([zod.object({
   "subject": zod.string(),
   "years_analyzed": zod.array(zod.string()),

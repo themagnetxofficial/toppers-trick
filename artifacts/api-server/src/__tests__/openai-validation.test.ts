@@ -213,7 +213,7 @@ describe("incremental topic correction helpers", () => {
   });
 
   it("uses the stronger synthesis model for five-paper runs", () => {
-    expect(getAnalysisModelForPaperCount(4)).toBe("gpt-4o-mini");
+    expect(getAnalysisModelForPaperCount(4)).toBe("gpt-5-mini");
     expect(getAnalysisModelForPaperCount(5)).toBe("gpt-5-mini");
   });
 
@@ -316,7 +316,7 @@ describe("incremental topic correction helpers", () => {
     ]);
   });
 
-  it("does not make paper-summary coverage a blocking quality check", () => {
+  it("flags distinctive summary topics that are missing from the topic list", () => {
     const result = {
       subject: "Law",
       years_analyzed: ["Paper 1", "Paper 2", "Paper 3", "Paper 4"],
@@ -332,6 +332,7 @@ describe("incremental topic correction helpers", () => {
         },
       ],
       topics: [
+        makeTopic("Rights of Finder of Goods"),
         ...Array.from({ length: 18 }, (_, index) =>
           makeTopic(`Specific Law Topic ${index + 1}`),
         ),
@@ -341,7 +342,13 @@ describe("incremental topic correction helpers", () => {
         "Bas Pass Hona Hai: Specific Law Topic 1 aur Specific Law Topic 2 padho.",
     } as any;
 
-    expect(getTopicQualityIssues(result, 4)).toEqual([]);
+    const issues = getTopicQualityIssues(result, 4);
+    expect(issues).toContain(
+      '"Consideration: Definition & Unlawful Cases" was listed as a distinctive topic in Paper 3\'s summary but has no matching entry in topics — add it as a real topic if the paper text supports it.',
+    );
+    expect(issues).not.toContain(
+      '"Rights of Finder of Goods" was listed as a distinctive topic in Paper 3\'s summary but has no matching entry in topics — add it as a real topic if the paper text supports it.',
+    );
   });
 
   it("applies only named replacements while preserving accepted topics and adding distinct ones", () => {

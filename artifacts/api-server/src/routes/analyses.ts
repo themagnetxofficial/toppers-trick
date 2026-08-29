@@ -206,6 +206,8 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
         processingStage: analysis.processingStage,
         processingCurrent: analysis.processingCurrent,
         processingTotal: analysis.processingTotal,
+        degraded: analysis.degraded ?? false,
+        qualityIssues: analysis.qualityIssues ?? [],
         hasPdf: false,
         createdAt: analysis.createdAt,
       })
@@ -339,24 +341,25 @@ export async function processAnalysis(
     stage = "ai_analysis";
     await updateProcessingProgress(analysisId, "ai_analysis");
     const aiStartedAt = performance.now();
-    const { result, inputTokens, outputTokens, usage } = await analyzeWithAI({
-      analysisId,
-      category: params.category,
-      classOrCourse: params.classOrCourse,
-      boardOrUniversity: params.boardOrUniversity,
-      subject: params.subject,
-      yearLabels,
-      papers,
-      extractedText,
-      analysisModel: yearLabels.length >= 5 ? "gpt-5-mini" : undefined,
-    });
+    const { result, inputTokens, outputTokens, usage, degraded, qualityIssues } =
+      await analyzeWithAI({
+        analysisId,
+        category: params.category,
+        classOrCourse: params.classOrCourse,
+        boardOrUniversity: params.boardOrUniversity,
+        subject: params.subject,
+        yearLabels,
+        papers,
+        extractedText,
+        analysisModel: yearLabels.length >= 4 ? "gpt-5-mini" : undefined,
+      });
     const aiDurationMs = Math.round(performance.now() - aiStartedAt);
     logger.info(
       {
         analysisId,
         durationMs: aiDurationMs,
         providerCallCount: usage?.length ?? 0,
-        model: yearLabels.length >= 5 ? "gpt-5-mini" : "gpt-4o-mini",
+        model: yearLabels.length >= 4 ? "gpt-5-mini" : "gpt-4o-mini",
       },
       "AI synthesis stage completed",
     );
@@ -399,6 +402,8 @@ export async function processAnalysis(
         processingCurrent: null,
         processingTotal: null,
         aiResponseJson: result as any,
+        degraded,
+        qualityIssues,
         pdfFilePath: pdfFileName,
         yearsAnalyzed: params.filePaths.length,
       })
@@ -543,6 +548,8 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
       processingStage: analysis.processingStage,
       processingCurrent: analysis.processingCurrent,
       processingTotal: analysis.processingTotal,
+      degraded: analysis.degraded ?? false,
+      qualityIssues: analysis.qualityIssues ?? [],
       errorMessage:
         analysis.status === "failed" &&
         (isSafeAnalysisFailureMessage(analysis.errorMessage) ||
@@ -664,6 +671,8 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
       processingStage: updatedAnalysis.processingStage,
       processingCurrent: updatedAnalysis.processingCurrent,
       processingTotal: updatedAnalysis.processingTotal,
+      degraded: false,
+      qualityIssues: [],
       errorMessage: null,
       hasPdf: !!updatedAnalysis.pdfFilePath,
       createdAt: updatedAnalysis.createdAt,

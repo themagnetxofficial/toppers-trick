@@ -179,7 +179,7 @@ describe("hard-capped compact repair flow", () => {
     );
 
     const patchRequest = createCompletion.mock.calls[1][0];
-    expect(patchRequest.model).toBe("gpt-4o-mini");
+    expect(patchRequest.model).toBe("gpt-5-mini");
     expect(patchRequest.messages[1].content).toContain(
       "already has 13 valid topics",
     );
@@ -228,22 +228,28 @@ describe("hard-capped compact repair flow", () => {
   });
 
   it("accepts the best parseable result after one patch even when quality issues remain", async () => {
-    const initial = makeResult(13);
+    const initial = makeResult(8);
 
     createCompletion
       .mockResolvedValueOnce(completion(initial, 100))
       .mockResolvedValueOnce(completion({ topics: [] }, 50));
 
-    const output = await runAnalysis();
+    const output = await runAnalysis({
+      yearLabels: ["Paper 1", "Paper 2", "Paper 3"],
+      papers: ["Paper 1", "Paper 2", "Paper 3"].map((label) => ({
+        label,
+        text: `${label}: Discuss named business communication concepts.`,
+      })),
+    });
 
     expect(createCompletion).toHaveBeenCalledTimes(2);
     expect(output.usage.map((call) => call.operation)).toEqual([
       "initial",
       "targeted_quality_repair",
     ]);
-    expect(output.result.topics).toHaveLength(13);
+    expect(output.result.topics).toHaveLength(8);
     expect(output.qualityIssues).toContain(
-      "Returned 13 topics, but this 4-paper analysis requires at least 18 granular topics.",
+      "Returned 8 topics, but this 3-paper analysis requires at least 12 granular topics.",
     );
     expect(output.result.paper_summaries?.[0]?.summary).toBe(
       "Original accepted summary.",
@@ -293,23 +299,30 @@ describe("hard-capped compact repair flow", () => {
     expect(createCompletion.mock.calls[1]![0].model).toBe("gpt-5-mini");
   });
 
-  it("does not repair uncovered paper-summary topics when simpler checks pass", async () => {
+  it("repairs when a paper summary names an uncovered distinctive topic", async () => {
     const initial = makeResult(18);
     initial.paper_summaries![0]!.distinctive_topics = [
       "Specific Topic 1",
       "Consideration: Definition & Unlawful Cases",
     ];
 
-    createCompletion.mockResolvedValueOnce(completion(initial, 100));
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(
+        completion({ topics: [makeTopic("Consideration: Definition & Unlawful Cases")] }, 50),
+      );
 
     const output = await runAnalysis();
 
-    expect(output.result.topics).toHaveLength(18);
-    expect(createCompletion).toHaveBeenCalledTimes(1);
+    expect(output.result.topics).toHaveLength(19);
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(output.result.topics.map((topic) => topic.topic_name)).toContain(
+      "Consideration: Definition & Unlawful Cases",
+    );
   });
 
   it("returns the schema-valid baseline and stops repairs when the shared deadline expires", async () => {
-    const initial = makeResult(13);
+    const initial = makeResult(8);
     createCompletion
       .mockResolvedValueOnce(completion(initial, 100))
       .mockImplementationOnce(
@@ -321,10 +334,17 @@ describe("hard-capped compact repair flow", () => {
           }),
       );
 
-    const output = await runAnalysis({ deadlineAt: Date.now() + 20 });
+    const output = await runAnalysis({
+      yearLabels: ["Paper 1", "Paper 2", "Paper 3"],
+      papers: ["Paper 1", "Paper 2", "Paper 3"].map((label) => ({
+        label,
+        text: `${label}: Discuss named business communication concepts.`,
+      })),
+      deadlineAt: Date.now() + 20,
+    });
 
     expect(output.degraded).toBe(true);
-    expect(output.result.topics).toHaveLength(13);
+    expect(output.result.topics).toHaveLength(8);
     expect(output.qualityIssues.length).toBeGreaterThan(0);
     expect(createCompletion).toHaveBeenCalledTimes(2);
   });
