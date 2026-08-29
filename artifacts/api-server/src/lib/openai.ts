@@ -145,14 +145,18 @@ async function transcribeImageWithVision(
                   {
                     role: "user",
                     content: [
-                      {
-                        type: "text",
-                        text:
-                          `Transcribe every piece of visible text from ${image.label}. ` +
-                          "Return only the transcription, with no summary or commentary. " +
-                          "Keep question numbers, answer choices, headings, and line breaks where readable. " +
-                          "Use [illegible] only for text that genuinely cannot be read.",
-                      },
+                       {
+                         type: "text",
+                         text:
+                           `Transcribe every piece of visible text from ${image.label}, scanning the page from top to bottom. ` +
+                           "This may be a CBSE or Indian exam paper printed bilingually in Hindi and English. " +
+                           "Return both languages exactly as visible; do not translate, summarize, shorten, or skip repeated-looking text. " +
+                           "A Hindi block and its English translation are usually one logical question, but both blocks must still be transcribed so the question is not lost. " +
+                           "Keep question numbers, options, marks, headings, case-study passages, sub-questions, tables, and line breaks where readable. " +
+                           "Continue through the bottom of the page, including any continuation text. " +
+                           "Return only the transcription, with no summary or commentary. " +
+                           "Use [illegible] only for text that genuinely cannot be read.",
+                       },
                       {
                         type: "image_url",
                         image_url: {
@@ -174,6 +178,11 @@ async function transcribeImageWithVision(
           const outputTokens = response.usage?.completion_tokens ?? 0;
           const durationMs = Math.round(performance.now() - startedAt);
           const choice = response.choices[0];
+           if (choice?.finish_reason === "length") {
+             throw new Error(
+               `OpenAI vision transcription was cut off for ${image.label} because it reached the output limit.`,
+             );
+           }
           const text = choice?.message?.content?.trim();
           if (!text) {
             throw new Error(
@@ -253,7 +262,12 @@ export async function transcribeImagesWithVision(
   const texts = await Promise.all(
     images.map((image) => transcribeImageWithVision(image, options)),
   );
-  return texts.join("\n\n");
+  return texts
+    .map(
+      (text, index) =>
+        `--- OCR page ${index + 1}: ${images[index]?.label ?? "uploaded image"} ---\n${text.trim()}`,
+    )
+    .join("\n\n");
 }
 
 export interface QuestionTypeBreakdown {
@@ -599,18 +613,32 @@ export function validateAiAnalysisResult(
   }
 }
 
-const MAX_CHARS_PER_PAPER = 40000;
+/**
+ * Keep a whole paper in the model input. A head/tail slice is especially
+ * harmful for exam papers because it removes the questions in the middle while
+ * leaving the model no indication that its coverage is incomplete.
+ *
+ * The budget is deliberately large enough for a long scanned paper after
+ * vision transcription. If a paper is still larger, fail instead of silently
+ * producing an analysis from partial source material.
+ */
+export const MAX_CHARS_PER_PAPER = 80000;
 
-function limitPaperForPrompt(text: string): string {
+export class PaperInputTooLargeError extends Error {
+  constructor(
+    readonly paperLabel: string,
+    readonly characterCount: number,
+  ) {
+    super(
+      `${paperLabel} contains ${characterCount.toLocaleString()} extracted characters, which exceeds the ${MAX_CHARS_PER_PAPER.toLocaleString()}-character complete-paper analysis limit. No partial analysis was attempted.`,
+    );
+    this.name = "PaperInputTooLargeError";
+  }
+}
+
+export function limitPaperForPrompt(text: string, paperLabel = "This paper"): string {
   if (text.length <= MAX_CHARS_PER_PAPER) return text;
-
-  const headLength = Math.floor(MAX_CHARS_PER_PAPER * 0.75);
-  const tailLength = MAX_CHARS_PER_PAPER - headLength;
-  return `${text.slice(0, headLength)}
-
-[Middle of this paper omitted only because it exceeded the per-paper AI input budget]
-
-${text.slice(-tailLength)}`;
+  throw new PaperInputTooLargeError(paperLabel, text.length);
 }
 
 export function buildPaperPromptContent(
@@ -628,6 +656,7 @@ export function buildPaperPromptContent(
       (paper) =>
         `--- ${paper.label} (complete paper kept separate) ---\n${limitPaperForPrompt(
           paper.text || "(No text extracted from this paper)",
+          paper.label,
         )}`,
     )
     .join("\n\n");
@@ -677,7 +706,10 @@ Rules:
 18. For every topic, include at least one paper_question_evidence item. Its evidence must quote a short, distinctive phrase of at least 3 words from the actual question or sub-question, not a generic explanation. The paper label must be one of the provided labels, and it must also appear in years_appeared.
 19. A topic is valid only when it has verified paper_question_evidence and non-empty content in all three study_note fields. Never add a topic merely to reach a count; omit it when the papers do not support it.
 20. Before topic synthesis, scan every provided paper from beginning to end and make a private sequential checklist of every question and separately answerable sub-question. Extract each distinct tested concept from that checklist, then map each topic back to at least one checklist item and quote its evidence.
-21. overall_strategy_tip must contain a clearly labeled "Bas Pass Hona Hai:" recommendation that names the exact granular topic_name values to study, explains why that set covers at least 40-50% of actual questions, and does not use an umbrella category as a substitute for multiple answerable concepts.`;
+21. overall_strategy_tip must contain a clearly labeled "Bas Pass Hona Hai:" recommendation that names the exact granular topic_name values to study, explains why that set covers at least 40-50% of actual questions, and does not use an umbrella category as a substitute for multiple answerable concepts.
+22. OCR page boundaries are explicit source boundaries, not optional excerpts. Read every OCR page marker in every paper, including the middle and final pages, before synthesizing topics.
+23. Bilingual normalization rule: when Hindi and English are translations of the same numbered question, count them as ONE logical question for question_count, frequency, coverage, and repeat patterns. Do not count the Hindi and English blocks as two questions. Keep separately answerable sub-questions distinct.
+24. For bilingual questions, use the clearest available wording from either language for paper_question_evidence, but only when that quoted phrase appears verbatim in the supplied paper text.`;
 
   const yearsList = params.yearLabels.join(", ");
   const minimumTopicCount = getMinimumTopicCount(params.yearLabels.length);
@@ -770,6 +802,8 @@ Rules for this response:
 - do not cap coverage at any lower topic total. Use 15-30 granular topics when needed to cover the papers completely.
  - hard minimum for this run: return at least ${minimumTopicCount} granular topics. A response below this count is incomplete and invalid for this paper set. For four or more papers, target 18-20+ granular topics on this first pass. Expand with the independently answerable concepts, formats, comparisons, named documents, meeting items, writing forms, and communication skills that appeared in the papers.
 - paper-summary audit: every item named in every paper_summaries[].distinctive_topics list should map to a matching or more specific entry in topics. Do not list a concept in a paper summary and then omit it from topics.
+- bilingual paper audit: Hindi and English translations of the same numbered question count once; independently numbered or separately answerable sub-questions count separately. Do not inflate question_count, frequency, or coverage by counting translations twice.
+- page coverage audit: OCR page markers are source boundaries. Confirm that the first, middle, and final OCR pages contributed to the checklist before returning paper_summaries or topics.
 - reject vague topic titles ending in or equivalent to "Definition", "Explanation", "Summary", "Importance", "Skills", "Techniques", or "Challenges" unless the title also names the precise concept, subtype, format, or question situation that makes it independently answerable.
 - overall_strategy_tip must include a visible "Bas Pass Hona Hai:" label followed by the exact granular topic_name values selected and a realistic explanation of how those individual topics let the student attempt 40-50% of the actual questions.
 - related_topic_pairs: only include if genuinely observed — empty array [] is fine if none found.

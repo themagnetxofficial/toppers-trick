@@ -43,6 +43,10 @@ import { inspectStorageDirectory, inspectStoredFile } from "../lib/fileStorage";
 
 const router: IRouter = Router();
 
+function isPaperInputTooLargeError(error: unknown): boolean {
+  return error instanceof Error && error.name === "PaperInputTooLargeError";
+}
+
 function isInsideUploadsDir(filePath: string): boolean {
   const uploadsDir = path.resolve(getUploadsDir());
   const resolvedPath = path.resolve(filePath);
@@ -338,7 +342,11 @@ export async function processAnalysis(
     }
   } catch (err) {
     const failureStage =
-      err instanceof AnalysisProcessingError ? err.stage : stage;
+      isPaperInputTooLargeError(err)
+        ? "input_too_large"
+        : err instanceof AnalysisProcessingError
+          ? err.stage
+          : stage;
     logger.error(
       { err, analysisId, stage: failureStage },
       "Analysis failed",

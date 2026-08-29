@@ -2,6 +2,7 @@ export type AnalysisFailureStage =
   | "file_missing"
   | "file_unavailable"
   | "text_extraction"
+  | "input_too_large"
   | "ai_analysis"
   | "pdf_generation"
   | "persistence"
@@ -14,6 +15,8 @@ const USER_MESSAGES: Record<AnalysisFailureStage, string> = {
     "The uploaded paper files could not be accessed by the analysis server. Please upload the papers again.",
   text_extraction:
     "We could not read enough text from the uploaded papers. Please use clear, unlocked PDFs or images and try again.",
+  input_too_large:
+    "The uploaded papers are too long to analyze completely in one run. Please split the papers into smaller uploads and try again.",
   ai_analysis:
     "The AI analysis service could not complete this request. Please try again shortly.",
   pdf_generation:

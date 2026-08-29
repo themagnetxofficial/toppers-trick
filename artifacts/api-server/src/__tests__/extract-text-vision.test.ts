@@ -74,6 +74,20 @@ describe("vision extraction fallback", () => {
     expect(getScreenshot).not.toHaveBeenCalled();
   });
 
+  it("does not mistake pdf-parse page placeholders for usable paper text", async () => {
+    const filePath = makeTemporaryFile(".pdf");
+    getText.mockResolvedValueOnce({
+      text: "-- 1 of 31 --\n\n-- 2 of 31 --\n\n-- 31 of 31 --",
+    });
+
+    await expect(extractTextFromFile(filePath)).resolves.toContain("photosynthesis");
+    expect(getScreenshot).toHaveBeenCalledWith({
+      partial: [1],
+      desiredWidth: 1600,
+    });
+    expect(transcribeImagesWithVision).toHaveBeenCalled();
+  });
+
   it("renders every image-only PDF page in order and sends PNGs to vision", async () => {
     const filePath = makeTemporaryFile(".pdf");
     getInfo.mockResolvedValueOnce({ total: 3 });

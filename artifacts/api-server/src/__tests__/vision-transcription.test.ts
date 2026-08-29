@@ -33,7 +33,10 @@ describe("OpenAI vision transcription", () => {
       },
     ]);
 
-    expect(text).toBe("1. Define the law of demand.\n\n1. Define the law of demand.");
+    expect(text).toBe(
+      "--- OCR page 1: paper.pdf, page 1 ---\n1. Define the law of demand.\n\n" +
+        "--- OCR page 2: paper.jpg ---\n1. Define the law of demand.",
+    );
     expect(create).toHaveBeenCalledTimes(2);
     expect(create).toHaveBeenNthCalledWith(
       1,
@@ -64,7 +67,7 @@ describe("OpenAI vision transcription", () => {
       const prompt = content.find((item: { type: string }) => item.type === "text") as {
         text: string;
       };
-      const label = prompt.text.match(/from (.+?)\. Return only/)?.[1] ?? "unknown";
+      const label = prompt.text.match(/from (.+?), scanning/)?.[1] ?? "unknown";
 
       return new Promise((resolve) => {
         pending.push({
@@ -94,7 +97,10 @@ describe("OpenAI vision transcription", () => {
     pending.find((item) => item.label === "page 4")!.resolve("Fourth page");
 
     await expect(transcription).resolves.toBe(
-      "First page\n\nSecond page\n\nThird page\n\nFourth page",
+      "--- OCR page 1: page 1 ---\nFirst page\n\n" +
+        "--- OCR page 2: page 2 ---\nSecond page\n\n" +
+        "--- OCR page 3: page 3 ---\nThird page\n\n" +
+        "--- OCR page 4: page 4 ---\nFourth page",
     );
   });
 
@@ -109,8 +115,30 @@ describe("OpenAI vision transcription", () => {
           label: "page 1",
         },
       ]),
-    ).resolves.toBe("1. Define the law of demand.");
+    ).resolves.toBe("--- OCR page 1: page 1 ---\n1. Define the law of demand.");
     expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not accept a vision page whose transcription was cut off", async () => {
+    create.mockResolvedValue({
+      choices: [
+        {
+          finish_reason: "length",
+          message: { content: "Partial question text" },
+        },
+      ],
+    });
+
+    await expect(
+      transcribeImagesWithVision([
+        {
+          data: Buffer.from("image"),
+          mimeType: "image/png",
+          label: "page 1",
+        },
+      ]),
+    ).rejects.toThrow("transcription was cut off");
+    expect(create).toHaveBeenCalledTimes(4);
   });
 
   it("uses the secondary vision model after both primary attempts return empty text", async () => {
@@ -129,7 +157,7 @@ describe("OpenAI vision transcription", () => {
           label: "page 1",
         },
       ]),
-    ).resolves.toBe("Recovered by secondary OCR.");
+    ).resolves.toBe("--- OCR page 1: page 1 ---\nRecovered by secondary OCR.");
 
     expect(create).toHaveBeenNthCalledWith(
       3,
@@ -152,7 +180,7 @@ describe("OpenAI vision transcription", () => {
           label: "page 1",
         },
       ]),
-    ).resolves.toBe("Recovered transcription.");
+    ).resolves.toBe("--- OCR page 1: page 1 ---\nRecovered transcription.");
     expect(create).toHaveBeenCalledTimes(2);
   });
 });

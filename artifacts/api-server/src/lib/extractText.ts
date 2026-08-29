@@ -8,7 +8,18 @@ import { transcribeImagesWithVision } from "./openai";
 // metadata from a scanned page must not prevent vision transcription, but a
 // short document with usable selectable text should stay local.
 const MINIMUM_USABLE_EMBEDDED_TEXT_LENGTH = 50;
+const MINIMUM_MEANINGFUL_EMBEDDED_TEXT_LENGTH = 30;
 const PDF_RENDER_WIDTH = 1600;
+const PDF_PAGE_PLACEHOLDER_PATTERN = /^\s*--\s+\d+\s+of\s+\d+\s+--\s*$/gmu;
+
+function hasMeaningfulEmbeddedText(text: string): boolean {
+  const withoutPagePlaceholders = text.replace(PDF_PAGE_PLACEHOLDER_PATTERN, "");
+  const meaningfulCharacterCount = withoutPagePlaceholders.replace(
+    /[^\p{L}\p{N}]+/gu,
+    "",
+  ).length;
+  return meaningfulCharacterCount >= MINIMUM_MEANINGFUL_EMBEDDED_TEXT_LENGTH;
+}
 
 async function extractTextViaPdfParse(filePath: string): Promise<string> {
   let parser: PDFParse | null = null;
@@ -96,7 +107,7 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
 
   if (ext === ".pdf") {
     const text = await extractTextViaPdfParse(filePath);
-    if (text.length >= MINIMUM_USABLE_EMBEDDED_TEXT_LENGTH) {
+    if (hasMeaningfulEmbeddedText(text)) {
       return text;
     }
 

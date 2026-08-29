@@ -139,6 +139,12 @@ describe("hard-capped compact repair flow", () => {
     expect(initialRequest.messages[0].content).toContain(
       "scan every provided paper from beginning to end",
     );
+    expect(initialRequest.messages[0].content).toContain(
+      "Hindi and English are translations of the same numbered question",
+    );
+    expect(initialRequest.messages[0].content).toContain(
+      "count them as ONE logical question",
+    );
     expect(initialRequest.messages[1].content).toContain(
       '"paper_question_evidence"',
     );
