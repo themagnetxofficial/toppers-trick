@@ -3,7 +3,10 @@ import {
   applyTopicRepairPatch,
   buildPaperPromptContent,
   getTopicQualityIssues,
+  limitPaperForPrompt,
+  MAX_CHARS_PER_PAPER,
   mergeAdditionalTopics,
+  PaperInputTooLargeError,
   validateAiAnalysisResult,
 } from "../lib/openai";
 
@@ -67,6 +70,40 @@ describe("validateAiAnalysisResult", () => {
     expect(content).toContain("Question from the second exam");
     expect(content).toContain("Question from the third exam");
     expect(content.match(/complete paper kept separate/g)).toHaveLength(3);
+  });
+
+  it("keeps the middle and final OCR pages when building a long complete-paper block", () => {
+    const content = buildPaperPromptContent(
+      [
+        {
+          label: "Paper 1",
+          text: [
+            "--- OCR page 1: paper.pdf, page 1 ---",
+            "Opening question",
+            `--- OCR page 16: paper.pdf, page 16 ---`,
+            "Middle case-study question with unique evidence",
+            `--- OCR page 31: paper.pdf, page 31 ---`,
+            "Final question",
+          ].join("\n"),
+        },
+      ],
+      "",
+      ["Paper 1"],
+    );
+
+    expect(content).toContain("OCR page 1");
+    expect(content).toContain("Middle case-study question with unique evidence");
+    expect(content).toContain("OCR page 31");
+    expect(content).toContain("Final question");
+  });
+
+  it("fails instead of silently cutting an oversized paper", () => {
+    expect(() =>
+      limitPaperForPrompt("x".repeat(MAX_CHARS_PER_PAPER + 1), "Paper 1"),
+    ).toThrow(PaperInputTooLargeError);
+    expect(() =>
+      limitPaperForPrompt("x".repeat(MAX_CHARS_PER_PAPER + 1), "Paper 1"),
+    ).toThrow(/No partial analysis was attempted/);
   });
 
   it("always reports all uploaded papers even if the model omits one", () => {
