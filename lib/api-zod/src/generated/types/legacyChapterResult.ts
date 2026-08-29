@@ -5,13 +5,13 @@
  * Smart Study Guide API
  * OpenAPI spec version: 0.1.0
  */
-import type { ChapterResultPriority } from './chapterResultPriority';
+import type { LegacyChapterResultPriority } from './legacyChapterResultPriority';
 
-export interface ChapterResult {
+export interface LegacyChapterResult {
   chapter_name: string;
   frequency: number;
   marks_weightage: string;
-  priority: ChapterResultPriority;
+  priority: LegacyChapterResultPriority;
   /** @nullable */
   study_note?: string | null;
 }

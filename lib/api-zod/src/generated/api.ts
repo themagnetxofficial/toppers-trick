@@ -98,7 +98,42 @@ export const CreateAnalysisResponse = zod.object({
   "processingCurrent": zod.number().nullish(),
   "processingTotal": zod.number().nullish(),
   "errorMessage": zod.string().nullish(),
-  "aiResponse": zod.object({
+  "aiResponse": zod.union([zod.object({
+  "subject": zod.string(),
+  "years_analyzed": zod.array(zod.string()),
+  "paper_summaries": zod.array(zod.object({
+  "paper": zod.string(),
+  "summary": zod.string(),
+  "question_count": zod.number(),
+  "distinctive_topics": zod.array(zod.string())
+})).optional(),
+  "topics": zod.array(zod.object({
+  "topic_name": zod.string(),
+  "priority": zod.enum(['High', 'Medium', 'Low']),
+  "frequency": zod.number(),
+  "years_appeared": zod.array(zod.string()),
+  "confidence_level": zod.enum(['High', 'Medium', 'Low']),
+  "marks_weightage": zod.string(),
+  "question_type_breakdown": zod.object({
+  "mcq": zod.string(),
+  "short": zod.string(),
+  "long": zod.string(),
+  "case_study": zod.string()
+}),
+  "study_note": zod.object({
+  "kya_padhna_hai": zod.string(),
+  "kaise_poochha_jaata_hai": zod.string(),
+  "repeat_pattern": zod.string()
+}),
+  "paper_question_evidence": zod.array(zod.object({
+  "paper": zod.string(),
+  "evidence": zod.string()
+})).optional(),
+  "key_terms": zod.array(zod.string())
+})),
+  "related_topic_pairs": zod.array(zod.string()),
+  "overall_strategy_tip": zod.string()
+}),zod.object({
   "subject": zod.string(),
   "category": zod.string(),
   "years_analyzed": zod.number(),
@@ -110,7 +145,7 @@ export const CreateAnalysisResponse = zod.object({
   "study_note": zod.string().nullish()
 })),
   "overall_strategy_tip": zod.string()
-}).optional(),
+})]).optional(),
   "hasPdf": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
@@ -135,7 +170,42 @@ export const GetAnalysisResponse = zod.object({
   "processingCurrent": zod.number().nullish(),
   "processingTotal": zod.number().nullish(),
   "errorMessage": zod.string().nullish(),
-  "aiResponse": zod.object({
+  "aiResponse": zod.union([zod.object({
+  "subject": zod.string(),
+  "years_analyzed": zod.array(zod.string()),
+  "paper_summaries": zod.array(zod.object({
+  "paper": zod.string(),
+  "summary": zod.string(),
+  "question_count": zod.number(),
+  "distinctive_topics": zod.array(zod.string())
+})).optional(),
+  "topics": zod.array(zod.object({
+  "topic_name": zod.string(),
+  "priority": zod.enum(['High', 'Medium', 'Low']),
+  "frequency": zod.number(),
+  "years_appeared": zod.array(zod.string()),
+  "confidence_level": zod.enum(['High', 'Medium', 'Low']),
+  "marks_weightage": zod.string(),
+  "question_type_breakdown": zod.object({
+  "mcq": zod.string(),
+  "short": zod.string(),
+  "long": zod.string(),
+  "case_study": zod.string()
+}),
+  "study_note": zod.object({
+  "kya_padhna_hai": zod.string(),
+  "kaise_poochha_jaata_hai": zod.string(),
+  "repeat_pattern": zod.string()
+}),
+  "paper_question_evidence": zod.array(zod.object({
+  "paper": zod.string(),
+  "evidence": zod.string()
+})).optional(),
+  "key_terms": zod.array(zod.string())
+})),
+  "related_topic_pairs": zod.array(zod.string()),
+  "overall_strategy_tip": zod.string()
+}),zod.object({
   "subject": zod.string(),
   "category": zod.string(),
   "years_analyzed": zod.number(),
@@ -147,7 +217,7 @@ export const GetAnalysisResponse = zod.object({
   "study_note": zod.string().nullish()
 })),
   "overall_strategy_tip": zod.string()
-}).optional(),
+})]).optional(),
   "hasPdf": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })

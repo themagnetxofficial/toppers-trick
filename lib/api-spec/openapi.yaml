@@ -358,7 +358,9 @@ components:
         errorMessage:
           type: ["string", "null"]
         aiResponse:
-          $ref: "#/components/schemas/AiAnalysisResult"
+          oneOf:
+            - $ref: "#/components/schemas/AiAnalysisResult"
+            - $ref: "#/components/schemas/LegacyAiAnalysisResult"
         hasPdf:
           type: boolean
         createdAt:
@@ -366,6 +368,112 @@ components:
           format: date-time
 
     AiAnalysisResult:
+      type: object
+      required: [subject, years_analyzed, topics, related_topic_pairs, overall_strategy_tip]
+      properties:
+        subject:
+          type: string
+        years_analyzed:
+          type: array
+          items:
+            type: string
+        paper_summaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaperSummary"
+        topics:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopicResult"
+        related_topic_pairs:
+          type: array
+          items:
+            type: string
+        overall_strategy_tip:
+          type: string
+
+    TopicResult:
+      type: object
+      required: [topic_name, priority, frequency, years_appeared, confidence_level, marks_weightage, question_type_breakdown, study_note, key_terms]
+      properties:
+        topic_name:
+          type: string
+        priority:
+          type: string
+          enum: [High, Medium, Low]
+        frequency:
+          type: number
+        years_appeared:
+          type: array
+          items:
+            type: string
+        confidence_level:
+          type: string
+          enum: [High, Medium, Low]
+        marks_weightage:
+          type: string
+        question_type_breakdown:
+          $ref: "#/components/schemas/QuestionTypeBreakdown"
+        study_note:
+          $ref: "#/components/schemas/StudyNote"
+        paper_question_evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaperQuestionEvidence"
+        key_terms:
+          type: array
+          items:
+            type: string
+
+    QuestionTypeBreakdown:
+      type: object
+      required: [mcq, short, long, case_study]
+      properties:
+        mcq:
+          type: string
+        short:
+          type: string
+        long:
+          type: string
+        case_study:
+          type: string
+
+    StudyNote:
+      type: object
+      required: [kya_padhna_hai, kaise_poochha_jaata_hai, repeat_pattern]
+      properties:
+        kya_padhna_hai:
+          type: string
+        kaise_poochha_jaata_hai:
+          type: string
+        repeat_pattern:
+          type: string
+
+    PaperQuestionEvidence:
+      type: object
+      required: [paper, evidence]
+      properties:
+        paper:
+          type: string
+        evidence:
+          type: string
+
+    PaperSummary:
+      type: object
+      required: [paper, summary, question_count, distinctive_topics]
+      properties:
+        paper:
+          type: string
+        summary:
+          type: string
+        question_count:
+          type: number
+        distinctive_topics:
+          type: array
+          items:
+            type: string
+
+    LegacyAiAnalysisResult:
       type: object
       required: [subject, category, years_analyzed, chapters, overall_strategy_tip]
       properties:
@@ -378,11 +486,11 @@ components:
         chapters:
           type: array
           items:
-            $ref: "#/components/schemas/ChapterResult"
+            $ref: "#/components/schemas/LegacyChapterResult"
         overall_strategy_tip:
           type: string
 
-    ChapterResult:
+    LegacyChapterResult:
       type: object
       required: [chapter_name, frequency, marks_weightage, priority]
       properties:

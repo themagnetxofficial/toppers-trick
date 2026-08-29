@@ -634,6 +634,62 @@ describe("GET /api/analyses/:id", () => {
     expect(res.body.aiResponse.chapters[0].chapter_name).toBe("Mechanics");
   });
 
+  it("returns the current topic-based analysis response", async () => {
+    dbState.analysis = {
+      ...dbState.analysis!,
+      status: "completed",
+      yearsAnalyzed: 1,
+      pdfFilePath: "study-guide-42.pdf",
+      aiResponseJson: {
+        subject: "Biology",
+        years_analyzed: ["Paper 1"],
+        paper_summaries: [
+          {
+            paper: "Paper 1",
+            summary: "The paper tests cell division and inheritance patterns.",
+            question_count: 18,
+            distinctive_topics: ["Mitosis and meiosis"],
+          },
+        ],
+        topics: [
+          {
+            topic_name: "Mitosis and meiosis",
+            priority: "High",
+            frequency: 2,
+            years_appeared: ["Paper 1"],
+            confidence_level: "High",
+            marks_weightage: "4-6 marks",
+            question_type_breakdown: {
+              mcq: "1",
+              short: "1",
+              long: "None",
+              case_study: "None",
+            },
+            study_note: {
+              kya_padhna_hai: "Stages and differences between mitosis and meiosis.",
+              kaise_poochha_jaata_hai: "Compare stages or identify the process from a diagram.",
+              repeat_pattern: "Appeared once in this paper.",
+            },
+            paper_question_evidence: [
+              {
+                paper: "Paper 1",
+                evidence: "Compare the stages of mitosis and meiosis.",
+              },
+            ],
+            key_terms: ["chromosome", "crossing over"],
+          },
+        ],
+        related_topic_pairs: [],
+        overall_strategy_tip: "Revise the stages and practice diagram-based comparisons.",
+      },
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+    expect(res.status).toBe(200);
+    expect(res.body.aiResponse.years_analyzed).toEqual(["Paper 1"]);
+    expect(res.body.aiResponse.topics[0].topic_name).toBe("Mitosis and meiosis");
+  });
+
   it("returns an allowlisted file-storage failure message", async () => {
     dbState.analysis = {
       ...dbState.analysis!,

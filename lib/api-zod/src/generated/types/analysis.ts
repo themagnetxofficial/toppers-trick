@@ -9,6 +9,7 @@ import type { AiAnalysisResult } from './aiAnalysisResult';
 import type { AnalysisCategory } from './analysisCategory';
 import type { AnalysisProcessingStage } from './analysisProcessingStage';
 import type { AnalysisStatus } from './analysisStatus';
+import type { LegacyAiAnalysisResult } from './legacyAiAnalysisResult';
 
 export interface Analysis {
   id: number;
@@ -29,7 +30,7 @@ export interface Analysis {
   processingTotal?: number | null;
   /** @nullable */
   errorMessage?: string | null;
-  aiResponse?: AiAnalysisResult;
+  aiResponse?: AiAnalysisResult | LegacyAiAnalysisResult;
   hasPdf?: boolean;
   createdAt: Date;
 }

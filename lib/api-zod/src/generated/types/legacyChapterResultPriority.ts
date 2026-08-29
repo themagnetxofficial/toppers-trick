@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ChapterResultPriority = typeof ChapterResultPriority[keyof typeof ChapterResultPriority];
+export type LegacyChapterResultPriority = typeof LegacyChapterResultPriority[keyof typeof LegacyChapterResultPriority];
 
 
-export const ChapterResultPriority = {
+export const LegacyChapterResultPriority = {
   High: 'High',
   Medium: 'Medium',
   Low: 'Low',
