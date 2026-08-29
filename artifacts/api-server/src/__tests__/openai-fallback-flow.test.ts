@@ -66,6 +66,35 @@ function makeResult(topicCount: number): AiAnalysisResult {
   };
 }
 
+function makeFivePaperResult(topicCount: number): AiAnalysisResult {
+  const fivePapers = ["Paper 1", "Paper 2", "Paper 3", "Paper 4", "Paper 5"];
+  const topics = Array.from({ length: topicCount }, (_, index) => {
+    const paper = fivePapers[index % fivePapers.length]!;
+    const topic = makeTopic(`Specific Biology Topic ${index + 1}`);
+    topic.years_appeared = [paper];
+    topic.paper_question_evidence = [
+      { paper, evidence: "Explain the named Biology process" },
+    ];
+    return topic;
+  });
+  return {
+    subject: "Biology",
+    years_analyzed: fivePapers,
+    paper_summaries: fivePapers.map((paper) => ({
+      paper,
+      summary: `${paper} tests named Biology processes with application questions.`,
+      question_count: 20,
+      distinctive_topics: [
+        topics.find((topic) => topic.years_appeared.includes(paper))!.topic_name,
+      ],
+    })),
+    topics,
+    related_topic_pairs: [],
+    overall_strategy_tip:
+      "Bas Pass Hona Hai: Specific Biology Topic 1 aur Specific Biology Topic 2 padho.",
+  };
+}
+
 function completion(content: unknown, totalTokens: number) {
   return {
     choices: [{ message: { content: JSON.stringify(content) } }],
@@ -219,6 +248,49 @@ describe("hard-capped compact repair flow", () => {
     expect(output.result.paper_summaries?.[0]?.summary).toBe(
       "Original accepted summary.",
     );
+  });
+
+  it("uses the stronger model and accepts a complete five-paper Biology result", async () => {
+    const fivePapers = ["Paper 1", "Paper 2", "Paper 3", "Paper 4", "Paper 5"];
+    createCompletion.mockResolvedValueOnce(completion(makeFivePaperResult(18), 120));
+
+    const output = await runAnalysis({
+      subject: "Biology",
+      yearLabels: fivePapers,
+      papers: fivePapers.map((label) => ({
+        label,
+        text: `${label}: Explain the named Biology process in detail.`,
+      })),
+    });
+
+    expect(output.qualityIssues).toEqual([]);
+    expect(output.result.paper_summaries).toHaveLength(5);
+    expect(createCompletion).toHaveBeenCalledTimes(1);
+    expect(createCompletion.mock.calls[0]![0].model).toBe("gpt-5-mini");
+    expect(createCompletion.mock.calls[0]![0].messages[1].content).toContain(
+      "Biology-specific guardrail",
+    );
+  });
+
+  it("fails a five-paper run when the compact repair remains materially incomplete", async () => {
+    const fivePapers = ["Paper 1", "Paper 2", "Paper 3", "Paper 4", "Paper 5"];
+    createCompletion
+      .mockResolvedValueOnce(completion(makeFivePaperResult(13), 100))
+      .mockResolvedValueOnce(completion({ topics: [] }, 50));
+
+    await expect(
+      runAnalysis({
+        subject: "Biology",
+        yearLabels: fivePapers,
+        papers: fivePapers.map((label) => ({
+          label,
+          text: `${label}: Explain the named Biology process in detail.`,
+        })),
+      }),
+    ).rejects.toThrow("did not meet quality requirements after repair");
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(createCompletion.mock.calls[1]![0].model).toBe("gpt-5-mini");
   });
 
   it("does not repair uncovered paper-summary topics when simpler checks pass", async () => {

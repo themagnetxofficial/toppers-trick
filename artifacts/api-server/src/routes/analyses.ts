@@ -246,6 +246,7 @@ export async function processAnalysis(
     userId: number;
   }
 ) {
+  const processingStartedAt = performance.now();
   let creditRefunded = false;
   let stage: AnalysisFailureStage = "file_unavailable";
 
@@ -284,6 +285,7 @@ export async function processAnalysis(
     }
 
     stage = "text_extraction";
+    const extractionStartedAt = performance.now();
     const { text: extractedText, yearLabels, papers, extractedCharacterCount } =
       await extractTextFromFilesWithLabels(params.filePaths, {
         onProgress: (progress) => {
@@ -304,6 +306,7 @@ export async function processAnalysis(
           );
         },
       });
+    const extractionDurationMs = Math.round(performance.now() - extractionStartedAt);
 
     if (!extractedText || extractedCharacterCount < 50) {
       throw new AnalysisProcessingError(
@@ -327,6 +330,7 @@ export async function processAnalysis(
           label: paper.label,
           extractedCharacters: paper.text.length,
         })),
+        durationMs: extractionDurationMs,
       },
       "Prepared every uploaded paper for AI comparison",
     );
@@ -334,7 +338,9 @@ export async function processAnalysis(
     // Call AI
     stage = "ai_analysis";
     await updateProcessingProgress(analysisId, "ai_analysis");
-    const { result, inputTokens, outputTokens } = await analyzeWithAI({
+    const aiStartedAt = performance.now();
+    const { result, inputTokens, outputTokens, usage } = await analyzeWithAI({
+      analysisId,
       category: params.category,
       classOrCourse: params.classOrCourse,
       boardOrUniversity: params.boardOrUniversity,
@@ -342,7 +348,18 @@ export async function processAnalysis(
       yearLabels,
       papers,
       extractedText,
+      analysisModel: yearLabels.length >= 5 ? "gpt-5-mini" : undefined,
     });
+    const aiDurationMs = Math.round(performance.now() - aiStartedAt);
+    logger.info(
+      {
+        analysisId,
+        durationMs: aiDurationMs,
+        providerCallCount: usage?.length ?? 0,
+        model: yearLabels.length >= 5 ? "gpt-5-mini" : "gpt-4o-mini",
+      },
+      "AI synthesis stage completed",
+    );
 
     // Log token usage
     stage = "persistence";
@@ -362,6 +379,7 @@ export async function processAnalysis(
     // Generate PDF
     stage = "pdf_generation";
     await updateProcessingProgress(analysisId, "pdf_generation");
+    const pdfStartedAt = performance.now();
     const pdfFileName = await generateStudyGuidePdf({
       analysisId,
       subject: params.subject,
@@ -369,6 +387,7 @@ export async function processAnalysis(
       boardOrUniversity: params.boardOrUniversity,
       aiResult: result,
     });
+    const pdfDurationMs = Math.round(performance.now() - pdfStartedAt);
 
     // Mark as completed
     stage = "persistence";
@@ -385,7 +404,17 @@ export async function processAnalysis(
       })
       .where(eq(analysesTable.id, analysisId));
 
-    logger.info({ analysisId }, "Analysis completed successfully");
+    logger.info(
+      {
+        analysisId,
+        paperCount: params.filePaths.length,
+        extractionDurationMs,
+        aiDurationMs,
+        pdfDurationMs,
+        totalDurationMs: Math.round(performance.now() - processingStartedAt),
+      },
+      "Analysis completed successfully",
+    );
 
     // Clean up uploaded files
     for (const fp of params.filePaths) {

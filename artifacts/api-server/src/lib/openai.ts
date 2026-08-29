@@ -312,7 +312,7 @@ async function transcribeImageBatchWithVision(
             const pageInstructions = images
               .map(
                 (_, index) =>
-                  `<<<OCR_PAGE_${index + 1}>>>\n[transcribe page ${index + 1} here]\n<<<END_OCR_PAGE_${index + 1}>>>`,
+                  `<<<OCR_PAGE_${index + 1}>>>\n<<<END_OCR_PAGE_${index + 1}>>>`,
               )
               .join("\n");
             const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
@@ -602,12 +602,18 @@ function getPaperSummaryQualityIssues(
     ];
   }
 
+  const issues: string[] = [];
+  if (result.paper_summaries.length !== paperLabels.length) {
+    issues.push(
+      `paper_summaries must contain exactly ${paperLabels.length} entries, one for each provided paper.`,
+    );
+  }
+
   const summariesByPaper = new Map(
     result.paper_summaries
       .filter((summary) => typeof summary?.paper === "string")
       .map((summary) => [summary.paper, summary]),
   );
-  const issues: string[] = [];
   const missingPapers = paperLabels.filter((label) => !summariesByPaper.has(label));
   if (missingPapers.length > 0) {
     issues.push(`Missing grounded paper summaries for: ${missingPapers.join(", ")}.`);
@@ -1310,7 +1316,14 @@ Return ONLY this compact repair object:
     }
   ],
   "topics": ["only new complete topic objects required to fill the count shortfall"],
-  "paper_summaries": ["include only when a five-paper summary is missing or invalid"],
+  "paper_summaries": [
+    {
+      "paper": "Paper 1",
+      "summary": "corrected grounded summary",
+      "question_count": 0,
+      "distinctive_topics": ["specific topic"]
+    }
+  ],
   "overall_strategy_tip": "include only when its required Bas Pass Hona Hai: label is missing"
 }
 
