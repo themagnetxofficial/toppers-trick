@@ -82,6 +82,29 @@ function getCandidateUploadPaths(body: unknown): string[] {
     : [];
 }
 
+type ProcessingStage = "text_extraction" | "ai_analysis" | "pdf_generation";
+
+async function updateProcessingProgress(
+  analysisId: number,
+  processingStage: ProcessingStage | null,
+  processingCurrent: number | null = null,
+  processingTotal: number | null = null,
+): Promise<void> {
+  try {
+    await db
+      .update(analysesTable)
+      .set({
+        processingStage,
+        processingCurrent,
+        processingTotal,
+      })
+      .where(eq(analysesTable.id, analysisId));
+  } catch (err) {
+    // Progress is best-effort; the analysis itself still owns the terminal state.
+    logger.warn({ err, analysisId, processingStage }, "Could not save analysis progress");
+  }
+}
+
 router.get("/analyses", requireAuth, async (req, res): Promise<void> => {
   const analyses = await db
     .select()
@@ -102,6 +125,9 @@ router.get("/analyses", requireAuth, async (req, res): Promise<void> => {
           subject: a.subject,
           yearsAnalyzed: a.yearsAnalyzed,
           status: a.status,
+          processingStage: a.processingStage,
+          processingCurrent: a.processingCurrent,
+          processingTotal: a.processingTotal,
           hasPdf: !!a.pdfFilePath,
           createdAt: a.createdAt,
         }))
@@ -151,6 +177,9 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
           boardOrUniversity: boardOrUniversity ?? null,
           subject,
           status: "processing",
+          processingStage: "text_extraction",
+          processingCurrent: 0,
+          processingTotal: null,
           inputFilePaths: filePaths,
         })
         .returning();
@@ -174,6 +203,9 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
         subject: analysis.subject,
         yearsAnalyzed: analysis.yearsAnalyzed,
         status: analysis.status,
+        processingStage: analysis.processingStage,
+        processingCurrent: analysis.processingCurrent,
+        processingTotal: analysis.processingTotal,
         hasPdf: false,
         createdAt: analysis.createdAt,
       })
@@ -253,7 +285,25 @@ export async function processAnalysis(
 
     stage = "text_extraction";
     const { text: extractedText, yearLabels, papers, extractedCharacterCount } =
-      await extractTextFromFilesWithLabels(params.filePaths);
+      await extractTextFromFilesWithLabels(params.filePaths, {
+        onProgress: (progress) => {
+          // The initial row already records text extraction at 0 pages. Avoid
+          // an unnecessary write before the first file has been inspected.
+          if (
+            progress.fileIndex === 0 &&
+            progress.current === 0 &&
+            progress.total === 0
+          ) {
+            return;
+          }
+          return updateProcessingProgress(
+            analysisId,
+            "text_extraction",
+            progress.current,
+            progress.total,
+          );
+        },
+      });
 
     if (!extractedText || extractedCharacterCount < 50) {
       throw new AnalysisProcessingError(
@@ -283,6 +333,7 @@ export async function processAnalysis(
 
     // Call AI
     stage = "ai_analysis";
+    await updateProcessingProgress(analysisId, "ai_analysis");
     const { result, inputTokens, outputTokens } = await analyzeWithAI({
       category: params.category,
       classOrCourse: params.classOrCourse,
@@ -310,6 +361,7 @@ export async function processAnalysis(
 
     // Generate PDF
     stage = "pdf_generation";
+    await updateProcessingProgress(analysisId, "pdf_generation");
     const pdfFileName = await generateStudyGuidePdf({
       analysisId,
       subject: params.subject,
@@ -324,6 +376,9 @@ export async function processAnalysis(
       .update(analysesTable)
       .set({
         status: "completed",
+        processingStage: null,
+        processingCurrent: null,
+        processingTotal: null,
         aiResponseJson: result as any,
         pdfFilePath: pdfFileName,
         yearsAnalyzed: params.filePaths.length,
@@ -366,7 +421,10 @@ export async function processAnalysis(
     try {
       await db
         .update(analysesTable)
-        .set({ status: "failed", errorMessage: pendingRefundMessage })
+        .set({
+          status: "failed",
+          errorMessage: pendingRefundMessage,
+        })
         .where(eq(analysesTable.id, analysisId));
       failureStatePersisted = true;
     } catch (persistenceErr) {
@@ -453,6 +511,9 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
       subject: analysis.subject,
       yearsAnalyzed: analysis.yearsAnalyzed,
       status: analysis.status,
+      processingStage: analysis.processingStage,
+      processingCurrent: analysis.processingCurrent,
+      processingTotal: analysis.processingTotal,
       errorMessage:
         analysis.status === "failed" &&
         (isSafeAnalysisFailureMessage(analysis.errorMessage) ||
@@ -519,7 +580,13 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
   // WHERE status = 'failed' ensures only one concurrent request can win.
   const claimed = await db
     .update(analysesTable)
-    .set({ status: "processing", errorMessage: null })
+    .set({
+      status: "processing",
+      processingStage: "text_extraction",
+      processingCurrent: 0,
+      processingTotal: null,
+      errorMessage: null,
+    })
     .where(
       and(
         eq(analysesTable.id, id),
@@ -543,7 +610,13 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
     // Edge case: credits expired/drained between the pre-check and this write.
     await db
       .update(analysesTable)
-      .set({ status: "failed", errorMessage: "Insufficient credits." })
+      .set({
+        status: "failed",
+        processingStage: null,
+        processingCurrent: null,
+        processingTotal: null,
+        errorMessage: "Insufficient credits.",
+      })
       .where(eq(analysesTable.id, id));
     res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
     return;
@@ -559,6 +632,9 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
       subject: updatedAnalysis.subject,
       yearsAnalyzed: updatedAnalysis.yearsAnalyzed,
       status: updatedAnalysis.status,
+      processingStage: updatedAnalysis.processingStage,
+      processingCurrent: updatedAnalysis.processingCurrent,
+      processingTotal: updatedAnalysis.processingTotal,
       errorMessage: null,
       hasPdf: !!updatedAnalysis.pdfFilePath,
       createdAt: updatedAnalysis.createdAt,

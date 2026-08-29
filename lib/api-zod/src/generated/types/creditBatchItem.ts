@@ -6,10 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface PaymentOrder {
-  orderId: string;
-  amount: number;
-  currency: string;
-  key: string;
+export interface CreditBatchItem {
   credits: number;
+  isPaid: boolean;
+  /** @nullable */
+  expiresAt: Date | null;
 }

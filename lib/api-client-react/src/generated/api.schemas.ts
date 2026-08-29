@@ -22,6 +22,7 @@ export interface UserProfile {
 export interface CreditBatchItem {
   credits: number;
   isPaid: boolean;
+  /** @nullable */
   expiresAt: string | null;
 }
 
@@ -29,7 +30,10 @@ export interface CreditBalance {
   creditsRemaining: number;
   totalPurchased: number;
   freeCreditUsed?: boolean;
-  /** ISO date string of the soonest expiring paid batch, null if only free credits */
+  /**
+     * ISO date string of the soonest expiring paid batch, null if only free credits
+     * @nullable
+     */
   nextExpiresAt?: string | null;
   batches?: CreditBatchItem[];
 }
@@ -59,6 +63,18 @@ export const AnalysisSummaryStatus = {
   failed: 'failed',
 } as const;
 
+/**
+ * @nullable
+ */
+export type AnalysisSummaryProcessingStage = typeof AnalysisSummaryProcessingStage[keyof typeof AnalysisSummaryProcessingStage] | null;
+
+
+export const AnalysisSummaryProcessingStage = {
+  text_extraction: 'text_extraction',
+  ai_analysis: 'ai_analysis',
+  pdf_generation: 'pdf_generation',
+} as const;
+
 export interface AnalysisSummary {
   id: number;
   category: AnalysisSummaryCategory;
@@ -70,6 +86,12 @@ export interface AnalysisSummary {
   /** @nullable */
   yearsAnalyzed?: number | null;
   status: AnalysisSummaryStatus;
+  /** @nullable */
+  processingStage?: AnalysisSummaryProcessingStage;
+  /** @nullable */
+  processingCurrent?: number | null;
+  /** @nullable */
+  processingTotal?: number | null;
   hasPdf?: boolean;
   createdAt: string;
 }
@@ -90,6 +112,18 @@ export const AnalysisStatus = {
   processing: 'processing',
   completed: 'completed',
   failed: 'failed',
+} as const;
+
+/**
+ * @nullable
+ */
+export type AnalysisProcessingStage = typeof AnalysisProcessingStage[keyof typeof AnalysisProcessingStage] | null;
+
+
+export const AnalysisProcessingStage = {
+  text_extraction: 'text_extraction',
+  ai_analysis: 'ai_analysis',
+  pdf_generation: 'pdf_generation',
 } as const;
 
 export type ChapterResultPriority = typeof ChapterResultPriority[keyof typeof ChapterResultPriority];
@@ -130,6 +164,12 @@ export interface Analysis {
   yearsAnalyzed?: number | null;
   status: AnalysisStatus;
   /** @nullable */
+  processingStage?: AnalysisProcessingStage;
+  /** @nullable */
+  processingCurrent?: number | null;
+  /** @nullable */
+  processingTotal?: number | null;
+  /** @nullable */
   errorMessage?: string | null;
   aiResponse?: AiAnalysisResult;
   hasPdf?: boolean;
@@ -156,18 +196,24 @@ export interface PdfDownload {
   url: string;
 }
 
-export type PackageId = 'starter' | 'value';
-
-export interface PackageOrderInput {
-  packageId: PackageId;
-}
-
 export interface PaymentOrder {
   orderId: string;
   amount: number;
   currency: string;
   key: string;
   credits: number;
+}
+
+export type PaymentOrderInputPackageId = typeof PaymentOrderInputPackageId[keyof typeof PaymentOrderInputPackageId];
+
+
+export const PaymentOrderInputPackageId = {
+  starter: 'starter',
+  value: 'value',
+} as const;
+
+export interface PaymentOrderInput {
+  packageId: PaymentOrderInputPackageId;
 }
 
 export interface PaymentVerification {

@@ -96,6 +96,10 @@ export interface VisionTranscriptionImage {
   label: string;
 }
 
+export type VisionImageCompleteReporter = (
+  image: VisionTranscriptionImage,
+) => void | Promise<void>;
+
 async function withVisionTranscriptionSlot<T>(operation: () => Promise<T>): Promise<T> {
   await new Promise<void>((resolve) => {
     const start = () => {
@@ -257,10 +261,15 @@ export async function transcribeImagesWithVision(
   options: {
     deadlineAt?: number;
     onCallComplete?: ProviderCallReporter;
+    onImageComplete?: VisionImageCompleteReporter;
   } = {},
 ): Promise<string> {
   const texts = await Promise.all(
-    images.map((image) => transcribeImageWithVision(image, options)),
+    images.map(async (image) => {
+      const text = await transcribeImageWithVision(image, options);
+      await options.onImageComplete?.(image);
+      return text;
+    }),
   );
   return texts
     .map(

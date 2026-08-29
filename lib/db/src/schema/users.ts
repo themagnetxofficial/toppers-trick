@@ -30,6 +30,9 @@ export const analysesTable = pgTable("analyses", {
   subject: text("subject").notNull(),
   yearsAnalyzed: integer("years_analyzed"),
   status: text("status").notNull().default("pending"), // pending | processing | completed | failed
+  processingStage: text("processing_stage"), // text_extraction | ai_analysis | pdf_generation
+  processingCurrent: integer("processing_current"),
+  processingTotal: integer("processing_total"),
   errorMessage: text("error_message"),
   aiResponseJson: jsonb("ai_response_json"),
   pdfFilePath: text("pdf_file_path"),

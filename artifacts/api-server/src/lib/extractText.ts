@@ -12,6 +12,18 @@ const MINIMUM_MEANINGFUL_EMBEDDED_TEXT_LENGTH = 30;
 const PDF_RENDER_WIDTH = 1600;
 const PDF_PAGE_PLACEHOLDER_PATTERN = /^\s*--\s+\d+\s+of\s+\d+\s+--\s*$/gmu;
 
+export interface TextExtractionProgress {
+  fileIndex: number;
+  fileCount: number;
+  fileName: string;
+  current: number;
+  total: number;
+}
+
+type TextExtractionProgressReporter = (
+  progress: TextExtractionProgress,
+) => void | Promise<void>;
+
 function hasMeaningfulEmbeddedText(text: string): boolean {
   const withoutPagePlaceholders = text.replace(PDF_PAGE_PLACEHOLDER_PATTERN, "");
   const meaningfulCharacterCount = withoutPagePlaceholders.replace(
@@ -42,7 +54,10 @@ async function extractTextViaPdfParse(filePath: string): Promise<string> {
  * not launch Poppler or a local OCR worker, which are unavailable under the
  * Hostinger process limit.
  */
-async function transcribeScannedPdfWithVision(filePath: string): Promise<string> {
+async function transcribeScannedPdfWithVision(
+  filePath: string,
+  onPageComplete?: (current: number, total: number) => void | Promise<void>,
+): Promise<string> {
   let parser: PDFParse | null = null;
 
   try {
@@ -82,32 +97,61 @@ async function transcribeScannedPdfWithVision(filePath: string): Promise<string>
       { filePath, pages: pages.length },
       "Sending image-only PDF pages to OpenAI vision for transcription",
     );
-    return await transcribeImagesWithVision(pages);
+    let completedPages = 0;
+    let progressChain = Promise.resolve();
+    const transcriptionOptions = onPageComplete
+      ? {
+          onImageComplete: () => {
+            completedPages += 1;
+            progressChain = progressChain.then(() =>
+              onPageComplete(completedPages, pages.length),
+            );
+            return progressChain;
+          },
+        }
+      : undefined;
+
+    return transcriptionOptions
+      ? await transcribeImagesWithVision(pages, transcriptionOptions)
+      : await transcribeImagesWithVision(pages);
   } finally {
     await parser?.destroy().catch(() => undefined);
   }
 }
 
-async function transcribeImageWithVision(filePath: string): Promise<string> {
+async function transcribeImageWithVision(
+  filePath: string,
+  onPageComplete?: (current: number, total: number) => void | Promise<void>,
+): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = ext === ".png" ? "image/png" : "image/jpeg";
 
   logger.info({ filePath }, "Sending uploaded image to OpenAI vision for transcription");
-  return transcribeImagesWithVision([
-    {
-      data: fs.readFileSync(filePath),
-      mimeType,
-      label: path.basename(filePath),
-    },
-  ]);
+  const transcriptionOptions = onPageComplete
+    ? {
+        onImageComplete: () => onPageComplete(1, 1),
+      }
+    : undefined;
+  const image = {
+    data: fs.readFileSync(filePath),
+    mimeType,
+    label: path.basename(filePath),
+  } as const;
+  return transcriptionOptions
+    ? transcribeImagesWithVision([image], transcriptionOptions)
+    : transcribeImagesWithVision([image]);
 }
 
-export async function extractTextFromFile(filePath: string): Promise<string> {
+export async function extractTextFromFile(
+  filePath: string,
+  onProgress?: (current: number, total: number) => void | Promise<void>,
+): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
 
   if (ext === ".pdf") {
     const text = await extractTextViaPdfParse(filePath);
     if (hasMeaningfulEmbeddedText(text)) {
+      await onProgress?.(1, 1);
       return text;
     }
 
@@ -115,11 +159,11 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
       { filePath, textLen: text.length },
       "PDF has little/no selectable text — using OpenAI vision transcription",
     );
-    return transcribeScannedPdfWithVision(filePath);
+    return transcribeScannedPdfWithVision(filePath, onProgress);
   }
 
   if ([".jpg", ".jpeg", ".png"].includes(ext)) {
-    return transcribeImageWithVision(filePath);
+    return transcribeImageWithVision(filePath, onProgress);
   }
 
   return "";
@@ -139,6 +183,7 @@ export async function extractTextFromFiles(filePaths: string[]): Promise<string>
  */
 export async function extractTextFromFilesWithLabels(
   filePaths: string[],
+  options: { onProgress?: TextExtractionProgressReporter } = {},
 ): Promise<{
   text: string;
   yearLabels: string[];
@@ -146,8 +191,25 @@ export async function extractTextFromFilesWithLabels(
   extractedCharacterCount: number;
 }> {
   const texts: string[] = [];
-  for (const filePath of filePaths) {
-    texts.push(await extractTextFromFile(filePath));
+  for (const [fileIndex, filePath] of filePaths.entries()) {
+    await options.onProgress?.({
+      fileIndex,
+      fileCount: filePaths.length,
+      fileName: path.basename(filePath),
+      current: 0,
+      total: 0,
+    });
+    texts.push(
+      await extractTextFromFile(filePath, (current, total) =>
+        options.onProgress?.({
+          fileIndex,
+          fileCount: filePaths.length,
+          fileName: path.basename(filePath),
+          current,
+          total,
+        }),
+      ),
+    );
   }
   const yearLabels = filePaths.map((_, i) => `Paper ${i + 1}`);
   const papers = texts.map((text, i) => ({

@@ -7,6 +7,7 @@
  */
 import type { AiAnalysisResult } from './aiAnalysisResult';
 import type { AnalysisCategory } from './analysisCategory';
+import type { AnalysisProcessingStage } from './analysisProcessingStage';
 import type { AnalysisStatus } from './analysisStatus';
 
 export interface Analysis {
@@ -20,6 +21,12 @@ export interface Analysis {
   /** @nullable */
   yearsAnalyzed?: number | null;
   status: AnalysisStatus;
+  /** @nullable */
+  processingStage?: AnalysisProcessingStage;
+  /** @nullable */
+  processingCurrent?: number | null;
+  /** @nullable */
+  processingTotal?: number | null;
   /** @nullable */
   errorMessage?: string | null;
   aiResponse?: AiAnalysisResult;

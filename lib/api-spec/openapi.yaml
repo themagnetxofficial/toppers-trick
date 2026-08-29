@@ -168,6 +168,12 @@ paths:
       operationId: createPaymentOrder
       tags: [payments]
       summary: Create a Razorpay order for credit pack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentOrderInput"
       responses:
         "201":
           description: Razorpay order details
@@ -253,6 +259,26 @@ components:
           type: number
         freeCreditUsed:
           type: boolean
+        nextExpiresAt:
+          type: ["string", "null"]
+          format: date-time
+          description: ISO date string of the soonest expiring paid batch, null if only free credits
+        batches:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditBatchItem"
+
+    CreditBatchItem:
+      type: object
+      required: [credits, isPaid, expiresAt]
+      properties:
+        credits:
+          type: number
+        isPaid:
+          type: boolean
+        expiresAt:
+          type: ["string", "null"]
+          format: date-time
 
     UserStats:
       type: object
@@ -289,6 +315,13 @@ components:
         status:
           type: string
           enum: [pending, processing, completed, failed]
+        processingStage:
+          type: ["string", "null"]
+          enum: [text_extraction, ai_analysis, pdf_generation, null]
+        processingCurrent:
+          type: ["number", "null"]
+        processingTotal:
+          type: ["number", "null"]
         hasPdf:
           type: boolean
         createdAt:
@@ -315,6 +348,13 @@ components:
         status:
           type: string
           enum: [pending, processing, completed, failed]
+        processingStage:
+          type: ["string", "null"]
+          enum: [text_extraction, ai_analysis, pdf_generation, null]
+        processingCurrent:
+          type: ["number", "null"]
+        processingTotal:
+          type: ["number", "null"]
         errorMessage:
           type: ["string", "null"]
         aiResponse:
@@ -385,7 +425,7 @@ components:
 
     PaymentOrder:
       type: object
-      required: [orderId, amount, currency, key]
+      required: [orderId, amount, currency, key, credits]
       properties:
         orderId:
           type: string
@@ -395,6 +435,16 @@ components:
           type: string
         key:
           type: string
+        credits:
+          type: number
+
+    PaymentOrderInput:
+      type: object
+      required: [packageId]
+      properties:
+        packageId:
+          type: string
+          enum: [starter, value]
 
     PaymentVerification:
       type: object
