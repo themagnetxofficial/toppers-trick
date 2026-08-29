@@ -101,6 +101,7 @@ async function transcribeScannedPdfWithVision(
     let progressChain = Promise.resolve();
     const transcriptionOptions = onPageComplete
       ? {
+          batchSize: 2,
           onImageComplete: () => {
             completedPages += 1;
             progressChain = progressChain.then(() =>
@@ -109,7 +110,7 @@ async function transcribeScannedPdfWithVision(
             return progressChain;
           },
         }
-      : undefined;
+      : { batchSize: 2 };
 
     return transcriptionOptions
       ? await transcribeImagesWithVision(pages, transcriptionOptions)

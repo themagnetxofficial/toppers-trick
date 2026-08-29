@@ -100,6 +100,18 @@ export type VisionImageCompleteReporter = (
   image: VisionTranscriptionImage,
 ) => void | Promise<void>;
 
+export interface VisionTranscriptionOptions {
+  deadlineAt?: number;
+  onCallComplete?: ProviderCallReporter;
+  onImageComplete?: VisionImageCompleteReporter;
+  /**
+   * Scanned PDFs use small batches to reduce request overhead while retaining
+   * a strict page-level delimiter contract. Existing callers remain one image
+   * per request unless they opt into batching.
+   */
+  batchSize?: number;
+}
+
 async function withVisionTranscriptionSlot<T>(operation: () => Promise<T>): Promise<T> {
   await new Promise<void>((resolve) => {
     const start = () => {
@@ -124,10 +136,7 @@ async function withVisionTranscriptionSlot<T>(operation: () => Promise<T>): Prom
 
 async function transcribeImageWithVision(
   image: VisionTranscriptionImage,
-  options: {
-    deadlineAt?: number;
-    onCallComplete?: ProviderCallReporter;
-  },
+  options: VisionTranscriptionOptions,
 ): Promise<string> {
   return withVisionTranscriptionSlot(async () => {
     let lastError: unknown;
@@ -250,6 +259,193 @@ async function transcribeImageWithVision(
   });
 }
 
+function parseVisionPageBatch(
+  content: string,
+  expectedPageCount: number,
+): string[] {
+  const pageTexts: Array<string | undefined> = [];
+  const pagePattern =
+    /<<<OCR_PAGE_(\d+)>>>\s*([\s\S]*?)\s*<<<END_OCR_PAGE_\1>>>/g;
+  let match: RegExpExecArray | null;
+  while ((match = pagePattern.exec(content)) !== null) {
+    const pageNumber = Number(match[1]);
+    if (
+      !Number.isInteger(pageNumber) ||
+      pageNumber < 1 ||
+      pageNumber > expectedPageCount ||
+      pageTexts[pageNumber - 1] !== undefined
+    ) {
+      throw new Error("OpenAI vision returned invalid page delimiters for an OCR batch.");
+    }
+    pageTexts[pageNumber - 1] = match[2]?.trim() ?? "";
+  }
+
+  if (
+    pageTexts.length !== expectedPageCount ||
+    pageTexts.some((text) => !text)
+  ) {
+    throw new Error(
+      `OpenAI vision returned an incomplete OCR batch (${pageTexts.filter(Boolean).length}/${expectedPageCount} pages).`,
+    );
+  }
+
+  return pageTexts as string[];
+}
+
+async function transcribeImageBatchWithVision(
+  images: VisionTranscriptionImage[],
+  options: VisionTranscriptionOptions,
+): Promise<string[]> {
+  return withVisionTranscriptionSlot(async () => {
+    let lastError: unknown;
+    for (const model of [VISION_TRANSCRIPTION_MODEL, VISION_TRANSCRIPTION_FALLBACK_MODEL]) {
+      for (
+        let attempt = 0;
+        attempt <= VISION_TRANSCRIPTION_RETRY_COUNT;
+        attempt += 1
+      ) {
+        const startedAt = performance.now();
+        try {
+          const { signal, cleanup } = createDeadlineSignal(options.deadlineAt);
+          let response;
+          try {
+            const pageInstructions = images
+              .map(
+                (_, index) =>
+                  `<<<OCR_PAGE_${index + 1}>>>\n[transcribe page ${index + 1} here]\n<<<END_OCR_PAGE_${index + 1}>>>`,
+              )
+              .join("\n");
+            const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
+              model,
+              max_completion_tokens: 12000,
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text:
+                        `Transcribe all ${images.length} exam-paper pages below, keeping each page separate. ` +
+                        "This may be a CBSE or Indian exam paper printed bilingually in Hindi and English. " +
+                        "Return both languages exactly as visible; do not translate, summarize, shorten, or skip repeated-looking text. " +
+                        "A Hindi block and its English translation are usually one logical question, but both blocks must still be transcribed. " +
+                        "Keep question numbers, options, marks, headings, case-study passages, sub-questions, tables, and line breaks where readable. " +
+                        "Scan every supplied page from top to bottom, including continuation text. " +
+                        "Return exactly one block for each page using these delimiters and no commentary:\n" +
+                        pageInstructions,
+                    },
+                    ...images.map((image) => ({
+                      type: "image_url" as const,
+                      image_url: {
+                        url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+                        detail: "high" as const,
+                      },
+                    })),
+                  ],
+                },
+              ],
+            };
+            response = signal
+              ? await getOpenAI().chat.completions.create(request, { signal })
+              : await getOpenAI().chat.completions.create(request);
+          } finally {
+            cleanup();
+          }
+
+          const inputTokens = response.usage?.prompt_tokens ?? 0;
+          const outputTokens = response.usage?.completion_tokens ?? 0;
+          const durationMs = Math.round(performance.now() - startedAt);
+          const choice = response.choices[0];
+          if (choice?.finish_reason === "length") {
+            throw new Error(
+              `OpenAI vision transcription batch was cut off after ${images.length} pages.`,
+            );
+          }
+          const content = choice?.message?.content?.trim();
+          if (!content) {
+            throw new Error(
+              `OpenAI vision returned no transcription for an OCR batch (model=${model}, finish_reason=${choice?.finish_reason ?? "unknown"}).`,
+            );
+          }
+          const pageTexts = parseVisionPageBatch(content, images.length);
+          await options.onCallComplete?.({
+            operation: "vision_transcription",
+            model,
+            status: "completed",
+            inputTokens,
+            outputTokens,
+            totalTokens: response.usage?.total_tokens ?? inputTokens + outputTokens,
+            durationMs,
+            finishReason: choice?.finish_reason ?? null,
+            metadata: {
+              images: images.map((image) => image.label),
+              batchSize: images.length,
+              attempt: attempt + 1,
+            },
+          });
+          logger.info(
+            {
+              operation: "vision_transcription",
+              model,
+              images: images.map((image) => image.label),
+              inputTokens,
+              outputTokens,
+              totalTokens: response.usage?.total_tokens ?? inputTokens + outputTokens,
+              durationMs,
+              batchSize: images.length,
+            },
+            "OpenAI vision OCR batch completed",
+          );
+          return pageTexts;
+        } catch (err) {
+          lastError = normalizeDeadlineError(err);
+          const details = getErrorDetails(lastError);
+          await options.onCallComplete?.({
+            operation: "vision_transcription",
+            model,
+            status: "failed",
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            durationMs: Math.round(performance.now() - startedAt),
+            errorName: details.errorName,
+            errorMessage: details.errorMessage,
+            metadata: {
+              images: images.map((image) => image.label),
+              batchSize: images.length,
+              attempt: attempt + 1,
+            },
+          });
+          if (lastError instanceof AnalysisDeadlineExceededError) throw lastError;
+        }
+
+        logger.warn(
+          { err: lastError, images: images.map((image) => image.label), model, attempt: attempt + 1 },
+          attempt === VISION_TRANSCRIPTION_RETRY_COUNT
+            ? "OpenAI vision OCR batch failed; trying the next OCR option"
+            : "OpenAI vision OCR batch failed; retrying",
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("OpenAI vision did not return a response for the OCR batch.");
+  });
+}
+
+function splitVisionImages(
+  images: VisionTranscriptionImage[],
+  batchSize: number,
+): VisionTranscriptionImage[][] {
+  const safeBatchSize = Math.max(1, Math.floor(batchSize));
+  const batches: VisionTranscriptionImage[][] = [];
+  for (let index = 0; index < images.length; index += safeBatchSize) {
+    batches.push(images.slice(index, index + safeBatchSize));
+  }
+  return batches;
+}
+
 /**
  * Transcribe scanned paper images with the lowest-cost model that supports
  * vision input. A shared three-request limit protects the upstream rate limit
@@ -258,19 +454,36 @@ async function transcribeImageWithVision(
  */
 export async function transcribeImagesWithVision(
   images: VisionTranscriptionImage[],
-  options: {
-    deadlineAt?: number;
-    onCallComplete?: ProviderCallReporter;
-    onImageComplete?: VisionImageCompleteReporter;
-  } = {},
+  options: VisionTranscriptionOptions = {},
 ): Promise<string> {
-  const texts = await Promise.all(
-    images.map(async (image) => {
-      const text = await transcribeImageWithVision(image, options);
-      await options.onImageComplete?.(image);
-      return text;
+  const batches = splitVisionImages(images, options.batchSize ?? 1);
+  const batchTexts = await Promise.all(
+    batches.map(async (batch) => {
+      let texts: string[];
+      if (batch.length === 1) {
+        texts = [await transcribeImageWithVision(batch[0]!, options)];
+      } else {
+        try {
+          texts = await transcribeImageBatchWithVision(batch, options);
+        } catch (err) {
+          if (err instanceof AnalysisDeadlineExceededError) throw err;
+          logger.warn(
+            { err, images: batch.map((image) => image.label) },
+            "Falling back to individual OCR requests after an invalid batch",
+          );
+          texts = await Promise.all(
+            batch.map((image) => transcribeImageWithVision(image, options)),
+          );
+        }
+      }
+
+      for (const image of batch) {
+        await options.onImageComplete?.(image);
+      }
+      return texts;
     }),
   );
+  const texts = batchTexts.flat();
   return texts
     .map(
       (text, index) =>
@@ -337,14 +550,122 @@ export interface PaperSummary {
 const VAGUE_TOPIC_TITLE_PATTERN =
   /(?:definition|explanation|summary|overview|importance|skills|techniques|challenges)\s*$/i;
 
+const BIOLOGY_UMBRELLA_TOPIC_NAMES = new Set([
+  "biology",
+  "life science",
+  "cell biology",
+  "genetics",
+  "genetic inheritance",
+  "evolution",
+  "ecology",
+  "biodiversity",
+  "reproduction",
+  "human reproduction",
+  "sexual reproduction",
+  "human physiology",
+  "plant physiology",
+  "biotechnology",
+  "human health",
+  "human health and disease",
+  "life processes",
+  "molecular biology",
+  "environmental issues",
+]);
+
+const GENERIC_STUDY_BULLET_PATTERN =
+  /^(?:examples?|importance|strateg(?:y|ies)|common challenges?|real[- ]world use cases?|definition|explanation|summary|overview|etc\.?)$/i;
+
+function isBiologySubject(subject: string): boolean {
+  return /\b(?:bio(?:logy|logical)?|botany|zoology|life science)\b/i.test(subject);
+}
+
 function getVagueTopicNames(result: AiAnalysisResult): string[] {
+  const biologySubject = isBiologySubject(result.subject);
   return result.topics
     .map((topic) => topic.topic_name.trim())
-    .filter((topicName) => VAGUE_TOPIC_TITLE_PATTERN.test(topicName));
+    .filter((topicName) => {
+      const normalizedName = topicName.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+      return (
+        VAGUE_TOPIC_TITLE_PATTERN.test(topicName) ||
+        (biologySubject && BIOLOGY_UMBRELLA_TOPIC_NAMES.has(normalizedName))
+      );
+    });
+}
+
+function getPaperSummaryQualityIssues(
+  result: AiAnalysisResult,
+  paperLabels: string[],
+): string[] {
+  if (!Array.isArray(result.paper_summaries)) {
+    return [
+      `paper_summaries must contain exactly one grounded summary for each provided paper (${paperLabels.join(", ")}).`,
+    ];
+  }
+
+  const summariesByPaper = new Map(
+    result.paper_summaries
+      .filter((summary) => typeof summary?.paper === "string")
+      .map((summary) => [summary.paper, summary]),
+  );
+  const issues: string[] = [];
+  const missingPapers = paperLabels.filter((label) => !summariesByPaper.has(label));
+  if (missingPapers.length > 0) {
+    issues.push(`Missing grounded paper summaries for: ${missingPapers.join(", ")}.`);
+  }
+
+  const emptySummaries = paperLabels.filter((label) => {
+    const summary = summariesByPaper.get(label);
+    return (
+      !summary ||
+      typeof summary.summary !== "string" ||
+      summary.summary.trim().length < 20 ||
+      !Number.isFinite(summary.question_count) ||
+      summary.question_count <= 0
+    );
+  });
+  if (emptySummaries.length > 0) {
+    issues.push(
+      `Paper summaries must include a useful summary and positive question count for: ${emptySummaries.join(", ")}.`,
+    );
+  }
+
+  const unexpectedPapers = result.paper_summaries
+    .map((summary) => summary.paper)
+    .filter((label) => !paperLabels.includes(label));
+  if (unexpectedPapers.length > 0) {
+    issues.push(`paper_summaries included labels that were not uploaded: ${unexpectedPapers.join(", ")}.`);
+  }
+
+  return issues;
+}
+
+function getConcreteStudyNoteIssues(result: AiAnalysisResult): string[] {
+  return result.topics.flatMap((topic) => {
+    const note = topic.study_note?.kya_padhna_hai;
+    if (typeof note !== "string") return [];
+    const bullets = note
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*-\s*/, "").trim())
+      .filter(Boolean);
+    const genericBullets = bullets.filter((bullet) =>
+      GENERIC_STUDY_BULLET_PATTERN.test(bullet),
+    );
+    return genericBullets.length > 0
+      ? [
+          `"${topic.topic_name}" contains generic study bullets (${genericBullets.join(", ")}); every bullet must name a paper-derived concept or question pattern.`,
+        ]
+      : [];
+  });
 }
 
 function getMinimumTopicCount(paperCount: number): number {
   return paperCount >= 4 ? 18 : Math.max(8, paperCount * 4);
+}
+
+export function getAnalysisModelForPaperCount(
+  paperCount: number,
+): "gpt-4o-mini" | "gpt-5-mini" {
+  return paperCount >= 5 ? "gpt-5-mini" : "gpt-4o-mini";
 }
 
 export function getTopicQualityIssues(
@@ -378,11 +699,46 @@ export function getTopicQualityIssues(
       : [`"${topic.topic_name}" has ${bulletCount} kya_padhna_hai bullets (needs 4-6).`];
   });
   issues.push(...invalidStudyNotes);
+  issues.push(...getConcreteStudyNoteIssues(result));
 
   if (!/Bas Pass Hona Hai\s*:/i.test(result.overall_strategy_tip ?? "")) {
     issues.push(
       'overall_strategy_tip is missing a clearly labeled "Bas Pass Hona Hai:" recommendation.',
     );
+  }
+
+  if (paperCount >= 5) {
+    issues.push(...getPaperSummaryQualityIssues(result, result.years_analyzed));
+
+    const representedPapers = new Set(
+      result.topics.flatMap((topic) =>
+        Array.isArray(topic.paper_question_evidence)
+          ? topic.paper_question_evidence
+              .map((evidence) => evidence?.paper)
+              .filter((paper): paper is string => typeof paper === "string")
+          : [],
+      ),
+    );
+    const missingEvidencePapers = result.years_analyzed.filter(
+      (paper) => !representedPapers.has(paper),
+    );
+    if (missingEvidencePapers.length > 0) {
+      issues.push(
+        `At least one grounded topic is required for every paper; missing evidence for: ${missingEvidencePapers.join(", ")}.`,
+      );
+    }
+
+    const passStrategy = result.overall_strategy_tip?.match(
+      /Bas Pass Hona Hai\s*:\s*([\s\S]*)/i,
+    )?.[1] ?? "";
+    const namedTopics = result.topics.filter((topic) =>
+      passStrategy.includes(topic.topic_name),
+    );
+    if (result.topics.length > 0 && namedTopics.length === 0) {
+      issues.push(
+        'Bas Pass Hona Hai: must name exact granular topic_name values rather than only giving general advice.',
+      );
+    }
   }
 
   return issues;
@@ -498,6 +854,7 @@ interface TopicRepairPatch {
     topic: TopicResult;
   }>;
   topics?: TopicResult[];
+  paper_summaries?: PaperSummary[];
   overall_strategy_tip?: string;
 }
 
@@ -547,6 +904,9 @@ export function applyTopicRepairPatch(
   return {
     ...result,
     topics: mergeAdditionalTopics(repairedTopics, patch.topics ?? []),
+    paper_summaries: Array.isArray(patch.paper_summaries)
+      ? patch.paper_summaries
+      : result.paper_summaries,
     overall_strategy_tip:
       typeof patch.overall_strategy_tip === "string" &&
       patch.overall_strategy_tip.trim().length > 0
@@ -695,7 +1055,7 @@ export async function analyzeWithAI(params: {
   const systemPrompt = `You are an expert academic exam analyst with years of experience studying question paper patterns for Indian school and college exams. You don't just summarize — you find deep, non-obvious patterns that a professional exam coach would notice: which specific topics are actually tested repeatedly, how question difficulty and format has shifted across years, which topics are frequently paired together in exams, and how confident one can be in a prediction based on the consistency of the pattern.
 
 Rules:
-1. Identify each distinct, specific topic that appears in the papers as its own entry — do NOT group multiple distinct topics under one umbrella category. A typical subject usually has 8-12 distinct topics across the syllabus — make sure you're not under-segmenting into overly broad categories. For example, "HRM" as a whole is too broad — instead identify "HRM vs Personnel Management", "HR Manager Roles", "Manpower Planning", "Training Methods", "Performance Appraisal", etc. as separate topics.
+1. Identify each distinct, specific topic that appears in the papers as its own entry — do NOT group multiple distinct topics under one umbrella category. Do not cap the topic list based on a typical syllabus size; make sure you're not under-segmenting into overly broad categories. For example, "HRM" as a whole is too broad — instead identify "HRM vs Personnel Management", "HR Manager Roles", "Manpower Planning", "Training Methods", "Performance Appraisal", etc. as separate topics.
 2. Track YEAR-WISE presence — for each topic, show exactly which of the provided papers it appeared in, not just a total count.
 3. Identify QUESTION TYPE patterns — classify questions by format (MCQ, short answer, long answer/essay, case study) and note which format is most common for each topic.
 4. Assign a CONFIDENCE LEVEL (High/Medium/Low) to each prediction, based on how consistent the pattern is — a topic appearing in 4 out of 5 years in a similar format deserves "High confidence," while an inconsistent or only-once appearance deserves "Low confidence." Be honest — do not inflate confidence to seem more impressive.
@@ -722,7 +1082,8 @@ Rules:
 
   const yearsList = params.yearLabels.join(", ");
   const minimumTopicCount = getMinimumTopicCount(params.yearLabels.length);
-  const initialModel = params.analysisModel ?? "gpt-4o-mini";
+  const initialModel =
+    params.analysisModel ?? getAnalysisModelForPaperCount(params.yearLabels.length);
   const initialTokenLimit =
     initialModel === "gpt-5-mini"
       ? { max_completion_tokens: 20000, reasoning_effort: "low" as const }
@@ -732,10 +1093,14 @@ Rules:
     params.extractedText,
     params.yearLabels,
   );
+  const subjectSpecificGuidance = isBiologySubject(params.subject)
+    ? `\nBiology-specific guardrail: split broad chapters such as Genetics, Ecology, Reproduction, Biotechnology, Human Health, and Cell Biology into the independently answerable processes, comparisons, diagrams, disorders, experiments, inheritance problems, or case situations that are visibly asked. Do not return a single chapter name as a topic.\n`
+    : "";
   const userPrompt = `Category: ${params.category}
 Class/Course: ${params.classOrCourse || "Not specified"}
 Board/University: ${params.boardOrUniversity || "Not specified"}
 Subject: ${params.subject}
+${subjectSpecificGuidance}
 Papers provided (these exact labels must be used): ${yearsList}
 First-pass coverage target: this ${params.yearLabels.length}-paper run must return at least ${minimumTopicCount} granular, distinct topics. For four or more papers, aim for 18-20+ topics before returning JSON.
 
@@ -945,10 +1310,11 @@ Return ONLY this compact repair object:
     }
   ],
   "topics": ["only new complete topic objects required to fill the count shortfall"],
+  "paper_summaries": ["include only when a five-paper summary is missing or invalid"],
   "overall_strategy_tip": "include only when its required Bas Pass Hona Hai: label is missing"
 }
 
-Do not include unchanged topics, paper summaries, related pairs, or any extra keys. Add only NEW, distinct topics with real quoted question evidence and complete study notes. Do not add filler to meet the topic minimum. Replace only the existing topics named by failed checks, retaining all other accepted topics.`,
+Do not include unchanged topics, related pairs, or any extra keys. For a five-paper summary failure, include the complete corrected paper_summaries array and preserve all valid summaries. Add only NEW, distinct topics with real quoted question evidence and complete study notes. Do not add filler to meet the topic minimum. Replace only the existing topics named by failed checks, retaining all other accepted topics.`,
         },
         { role: "assistant", content: previousJson },
         {
@@ -981,6 +1347,7 @@ Do not include unchanged topics, paper summaries, related pairs, or any extra ke
   validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
 
   let degraded = false;
+  const strictFivePaperQuality = params.yearLabels.length >= 5;
   let qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
   try {
     if (qualityIssues.length > 0) {
@@ -1014,14 +1381,30 @@ Do not include unchanged topics, paper summaries, related pairs, or any extra ke
       if (qualityIssues.length > 0) {
         logger.warn(
           { issues: qualityIssues, topicCount: parsed.topics.length },
-          "Compact topic patch completed; accepting the best parseable result despite remaining quality issues",
+          strictFivePaperQuality
+            ? "Five-paper compact topic patch still has blocking quality issues"
+            : "Compact topic patch completed; accepting the best parseable result despite remaining quality issues",
         );
+        if (strictFivePaperQuality) {
+          throw new Error(
+            `Five-paper analysis did not meet quality requirements after repair: ${qualityIssues
+              .slice(0, 4)
+              .join(" ")}`,
+          );
+        }
       }
     }
   } catch (err) {
     if (!(err instanceof AnalysisDeadlineExceededError)) throw err;
     degraded = true;
     qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+    if (strictFivePaperQuality && qualityIssues.length > 0) {
+      throw new Error(
+        `Five-paper analysis deadline reached before a complete quality-checked result was available: ${qualityIssues
+          .slice(0, 4)
+          .join(" ")}`,
+      );
+    }
     logger.warn(
       {
         analysisId: params.analysisId,
