@@ -1299,16 +1299,18 @@ Rules for this response:
     issues: string[],
     acceptedTopicCount: number,
   ) => {
+    const repairModel = "gpt-4o-mini";
+    const repairTokenLimit = { max_tokens: 12000 };
     const missingTopicCount = Math.max(0, minimumTopicCount - acceptedTopicCount);
     const additionRequirement =
       missingTopicCount > 0
         ? `The accepted analysis already has ${acceptedTopicCount} valid topics. Return up to ${missingTopicCount} NEW, distinct topic objects in "topics" only when each one is directly supported by the paper text. Returning fewer is correct; never invent or pad topics to reach ${minimumTopicCount}.`
         : "Do not add topics unless they are required to resolve one of the listed quality failures.";
 
-    return runAnalysisRequest("targeted_quality_repair", initialModel, (signal) =>
+    return runAnalysisRequest("targeted_quality_repair", repairModel, (signal) =>
       getOpenAI().chat.completions.create({
-      model: initialModel,
-      ...initialTokenLimit,
+      model: repairModel,
+      ...repairTokenLimit,
       messages: [
         {
           role: "system",
