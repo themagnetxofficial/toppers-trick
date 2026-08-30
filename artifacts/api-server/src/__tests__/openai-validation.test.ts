@@ -34,7 +34,17 @@ describe("validateAiAnalysisResult", () => {
       topics: [
         {
           topic_name: "Market segmentation",
+          priority: "Low",
+          frequency: 1,
           years_appeared: ["Paper 1"],
+          confidence_level: "Low",
+          marks_weightage: "5 marks",
+          question_type_breakdown: {
+            mcq: "None",
+            short: "1",
+            long: "None",
+            case_study: "None",
+          },
           study_note: {
             kya_padhna_hai: "- Segmentation bases\n- Demographic variables\n- Geographic variables\n- Behavioral variables",
             kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
@@ -43,6 +53,7 @@ describe("validateAiAnalysisResult", () => {
           paper_question_evidence: [
             { paper: "Paper 1", evidence: "Define market segmentation" },
           ],
+          key_terms: ["market segmentation"],
         },
       ],
       related_topic_pairs: undefined,
@@ -54,6 +65,32 @@ describe("validateAiAnalysisResult", () => {
     expect(result.years_analyzed).toEqual(["Paper 1"]);
     expect(result.related_topic_pairs).toEqual([]);
     expect(result.topics).toHaveLength(1);
+  });
+
+  it("removes topics with incomplete fields before they can be persisted", () => {
+    const result = {
+      subject: "Marketing",
+      years_analyzed: ["Paper 1"],
+      topics: [
+        {
+          topic_name: "Incomplete topic",
+          study_note: {
+            kya_padhna_hai: "- One\n- Two\n- Three\n- Four",
+            kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
+            repeat_pattern: "Ek paper mein dikha.",
+          },
+          paper_question_evidence: [
+            { paper: "Paper 1", evidence: "Define incomplete topic" },
+          ],
+        },
+      ],
+      related_topic_pairs: [],
+      overall_strategy_tip: "Focus on core concepts.",
+    } as unknown as Parameters<typeof validateAiAnalysisResult>[0];
+
+    expect(() => validateAiAnalysisResult(result, ["Paper 1"])).toThrow(
+      "did not include any usable topics",
+    );
   });
 
   it("keeps every uploaded paper in its own AI input block", () => {
@@ -131,7 +168,17 @@ describe("validateAiAnalysisResult", () => {
       topics: [
         {
           topic_name: "Market segmentation",
+          priority: "Low",
+          frequency: 1,
           years_appeared: ["Paper 1", "Not an uploaded paper"],
+          confidence_level: "Low",
+          marks_weightage: "5 marks",
+          question_type_breakdown: {
+            mcq: "None",
+            short: "1",
+            long: "None",
+            case_study: "None",
+          },
           study_note: {
             kya_padhna_hai: "- Segmentation bases\n- Demographic variables\n- Geographic variables\n- Behavioral variables",
             kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
@@ -140,6 +187,7 @@ describe("validateAiAnalysisResult", () => {
           paper_question_evidence: [
             { paper: "Paper 1", evidence: "Define market segmentation" },
           ],
+          key_terms: ["market segmentation"],
         },
       ],
       related_topic_pairs: [],

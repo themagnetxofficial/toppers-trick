@@ -82,6 +82,143 @@ function getCandidateUploadPaths(body: unknown): string[] {
     : [];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getStringOrFallback(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function recoverTopicBasedAiResponse(
+  value: unknown,
+  fallbackSubject: string,
+): { value: unknown; repaired: boolean } {
+  if (!isRecord(value) || !Array.isArray(value.topics)) {
+    return { value, repaired: false };
+  }
+
+  let repaired = false;
+  const topics = value.topics.flatMap((topic) => {
+    if (!isRecord(topic) || typeof topic.topic_name !== "string" || !topic.topic_name.trim()) {
+      repaired = true;
+      return [];
+    }
+
+    const rawBreakdown = isRecord(topic.question_type_breakdown)
+      ? topic.question_type_breakdown
+      : {};
+    const questionTypeBreakdown = {
+      mcq: getStringOrFallback(rawBreakdown.mcq, "Not specified"),
+      short: getStringOrFallback(rawBreakdown.short, "Not specified"),
+      long: getStringOrFallback(rawBreakdown.long, "Not specified"),
+      case_study: getStringOrFallback(rawBreakdown.case_study, "Not specified"),
+    };
+
+    const rawStudyNote = isRecord(topic.study_note) ? topic.study_note : {};
+    const studyNote = {
+      kya_padhna_hai: getStringOrFallback(
+        rawStudyNote.kya_padhna_hai,
+        typeof topic.study_note === "string" ? topic.study_note : "Not specified",
+      ),
+      kaise_poochha_jaata_hai: getStringOrFallback(
+        rawStudyNote.kaise_poochha_jaata_hai,
+        "Not specified",
+      ),
+      repeat_pattern: getStringOrFallback(rawStudyNote.repeat_pattern, "Not specified"),
+    };
+
+    const priority =
+      topic.priority === "High" || topic.priority === "Medium" || topic.priority === "Low"
+        ? topic.priority
+        : "Medium";
+    const confidenceLevel =
+      topic.confidence_level === "High" ||
+      topic.confidence_level === "Medium" ||
+      topic.confidence_level === "Low"
+        ? topic.confidence_level
+        : "Low";
+    const yearsAppeared = Array.isArray(topic.years_appeared)
+      ? topic.years_appeared.filter((year): year is string => typeof year === "string")
+      : [];
+    const paperQuestionEvidence = Array.isArray(topic.paper_question_evidence)
+      ? topic.paper_question_evidence.filter(
+          (item): item is { paper: string; evidence: string } =>
+            isRecord(item) &&
+            typeof item.paper === "string" &&
+            typeof item.evidence === "string",
+        )
+      : undefined;
+    const keyTerms = Array.isArray(topic.key_terms)
+      ? topic.key_terms.filter((term): term is string => typeof term === "string")
+      : [];
+
+    if (
+      !isRecord(topic.question_type_breakdown) ||
+      !isRecord(topic.study_note) ||
+      !Array.isArray(topic.key_terms) ||
+      typeof topic.priority !== "string" ||
+      typeof topic.frequency !== "number" ||
+      typeof topic.confidence_level !== "string" ||
+      typeof topic.marks_weightage !== "string"
+    ) {
+      repaired = true;
+    }
+
+    return [
+      {
+        ...topic,
+        priority,
+        frequency:
+          typeof topic.frequency === "number" && Number.isFinite(topic.frequency)
+            ? topic.frequency
+            : 0,
+        years_appeared: yearsAppeared,
+        confidence_level: confidenceLevel,
+        marks_weightage: getStringOrFallback(topic.marks_weightage, "Not specified"),
+        question_type_breakdown: questionTypeBreakdown,
+        study_note: studyNote,
+        ...(paperQuestionEvidence ? { paper_question_evidence: paperQuestionEvidence } : {}),
+        key_terms: keyTerms,
+      },
+    ];
+  });
+
+  const rawYears = Array.isArray(value.years_analyzed)
+    ? value.years_analyzed.filter((year): year is string => typeof year === "string")
+    : [];
+  const relatedTopicPairs = Array.isArray(value.related_topic_pairs)
+    ? value.related_topic_pairs.filter(
+        (pair): pair is string => typeof pair === "string",
+      )
+    : [];
+  const overallStrategyTip = getStringOrFallback(
+    value.overall_strategy_tip,
+    "The analysis was recovered with limited AI detail. Please use the grounded topics below as a revision guide.",
+  );
+
+  if (
+    value.subject !== fallbackSubject ||
+    !Array.isArray(value.years_analyzed) ||
+    !Array.isArray(value.related_topic_pairs) ||
+    typeof value.overall_strategy_tip !== "string"
+  ) {
+    repaired = true;
+  }
+
+  return {
+    value: {
+      ...value,
+      subject: getStringOrFallback(value.subject, fallbackSubject),
+      years_analyzed: rawYears,
+      topics,
+      related_topic_pairs: relatedTopicPairs,
+      overall_strategy_tip: overallStrategyTip,
+    },
+    repaired,
+  };
+}
+
 type ProcessingStage = "text_extraction" | "ai_analysis" | "pdf_generation";
 
 async function updateProcessingProgress(
@@ -536,33 +673,68 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(
-    GetAnalysisResponse.parse({
-      id: analysis.id,
-      category: analysis.category,
-      classOrCourse: analysis.classOrCourse,
-      boardOrUniversity: analysis.boardOrUniversity,
-      subject: analysis.subject,
-      yearsAnalyzed: analysis.yearsAnalyzed,
-      status: analysis.status,
-      processingStage: analysis.processingStage,
-      processingCurrent: analysis.processingCurrent,
-      processingTotal: analysis.processingTotal,
-      degraded: analysis.degraded ?? false,
-      qualityIssues: analysis.qualityIssues ?? [],
-      errorMessage:
-        analysis.status === "failed" &&
-        (isSafeAnalysisFailureMessage(analysis.errorMessage) ||
-          isTemporaryOcrDiagnosticMessage(analysis.errorMessage))
-          ? analysis.errorMessage
-          : analysis.status === "failed"
-            ? getAnalysisFailureMessage("unknown")
-            : null,
-      aiResponse: analysis.aiResponseJson ?? undefined,
-      hasPdf: !!analysis.pdfFilePath,
-      createdAt: analysis.createdAt,
-    })
+  const responsePayload = {
+    id: analysis.id,
+    category: analysis.category,
+    classOrCourse: analysis.classOrCourse,
+    boardOrUniversity: analysis.boardOrUniversity,
+    subject: analysis.subject,
+    yearsAnalyzed: analysis.yearsAnalyzed,
+    status: analysis.status,
+    processingStage: analysis.processingStage,
+    processingCurrent: analysis.processingCurrent,
+    processingTotal: analysis.processingTotal,
+    degraded: analysis.degraded ?? false,
+    qualityIssues: analysis.qualityIssues ?? [],
+    errorMessage:
+      analysis.status === "failed" &&
+      (isSafeAnalysisFailureMessage(analysis.errorMessage) ||
+        isTemporaryOcrDiagnosticMessage(analysis.errorMessage))
+        ? analysis.errorMessage
+        : analysis.status === "failed"
+          ? getAnalysisFailureMessage("unknown")
+          : null,
+    aiResponse: analysis.aiResponseJson ?? undefined,
+    hasPdf: !!analysis.pdfFilePath,
+    createdAt: analysis.createdAt,
+  };
+  const parsedResponse = GetAnalysisResponse.safeParse(responsePayload);
+  if (parsedResponse.success) {
+    res.json(parsedResponse.data);
+    return;
+  }
+
+  if (analysis.status === "completed" && analysis.aiResponseJson) {
+    const recovered = recoverTopicBasedAiResponse(
+      analysis.aiResponseJson,
+      analysis.subject,
+    );
+    if (recovered.repaired) {
+      const recoveredResponse = GetAnalysisResponse.safeParse({
+        ...responsePayload,
+        degraded: true,
+        qualityIssues: [
+          ...(analysis.qualityIssues ?? []),
+          "Some topic details were incomplete in the original AI response and were safely recovered.",
+        ],
+        aiResponse: recovered.value,
+      });
+      if (recoveredResponse.success) {
+        logger.warn(
+          { analysisId: analysis.id },
+          "Served a compatibility-repaired analysis response",
+        );
+        res.json(recoveredResponse.data);
+        return;
+      }
+    }
+  }
+
+  logger.error(
+    { analysisId: analysis.id, validationIssues: parsedResponse.error.issues.length },
+    "Stored analysis response does not match the public API schema",
   );
+  res.status(500).json({ error: "This analysis result is incomplete. Please start a new analysis." });
 });
 
 router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> => {

@@ -754,6 +754,54 @@ describe("GET /api/analyses/:id", () => {
     expect(res.body.qualityIssues).toEqual(["One distinctive topic still needs verification."]);
   });
 
+  it("recovers a completed analysis whose topic fields are incomplete", async () => {
+    dbState.analysis = {
+      ...dbState.analysis!,
+      status: "completed",
+      yearsAnalyzed: 4,
+      pdfFilePath: "study-guide-42.pdf",
+      aiResponseJson: {
+        subject: "Business Communication",
+        years_analyzed: ["Paper 1", "Paper 2", "Paper 3", "Paper 4"],
+        topics: [
+          {
+            topic_name: "Incomplete persisted topic",
+            priority: "High",
+            frequency: 2,
+            years_appeared: ["Paper 1"],
+            confidence_level: "High",
+            marks_weightage: "5 marks",
+            study_note: {
+              kya_padhna_hai: "Revise the named concept.",
+              kaise_poochha_jaata_hai: "Short answer.",
+              repeat_pattern: "Repeated once.",
+            },
+            paper_question_evidence: [
+              { paper: "Paper 1", evidence: "Discuss the named concept" },
+            ],
+          },
+        ],
+        related_topic_pairs: [],
+        overall_strategy_tip: "Bas Pass Hona Hai: revise the named concept.",
+      },
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+
+    expect(res.status).toBe(200);
+    expect(res.body.degraded).toBe(true);
+    expect(res.body.qualityIssues).toContain(
+      "Some topic details were incomplete in the original AI response and were safely recovered.",
+    );
+    expect(res.body.aiResponse.topics[0].question_type_breakdown).toEqual({
+      mcq: "Not specified",
+      short: "Not specified",
+      long: "Not specified",
+      case_study: "Not specified",
+    });
+    expect(res.body.aiResponse.topics[0].key_terms).toEqual([]);
+  });
+
   it("returns an allowlisted file-storage failure message", async () => {
     dbState.analysis = {
       ...dbState.analysis!,

@@ -875,6 +875,79 @@ function hasNonEmptyStudyNotes(topic: TopicResult): boolean {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isCompleteQuestionTypeBreakdown(
+  value: unknown,
+): value is QuestionTypeBreakdown {
+  return (
+    isRecord(value) &&
+    typeof value.mcq === "string" &&
+    typeof value.short === "string" &&
+    typeof value.long === "string" &&
+    typeof value.case_study === "string"
+  );
+}
+
+function isCompleteStudyNote(
+  value: unknown,
+): value is TopicResult["study_note"] {
+  return (
+    isRecord(value) &&
+    typeof value.kya_padhna_hai === "string" &&
+    typeof value.kaise_poochha_jaata_hai === "string" &&
+    typeof value.repeat_pattern === "string"
+  );
+}
+
+function isCompleteTopicResult(value: unknown): value is TopicResult {
+  if (
+    !isRecord(value) ||
+    typeof value.topic_name !== "string" ||
+    typeof value.priority !== "string" ||
+    !["High", "Medium", "Low"].includes(value.priority) ||
+    typeof value.frequency !== "number" ||
+    !Number.isFinite(value.frequency) ||
+    !isStringArray(value.years_appeared) ||
+    typeof value.confidence_level !== "string" ||
+    !["High", "Medium", "Low"].includes(value.confidence_level) ||
+    typeof value.marks_weightage !== "string" ||
+    !isCompleteQuestionTypeBreakdown(value.question_type_breakdown) ||
+    !isCompleteStudyNote(value.study_note) ||
+    !isStringArray(value.key_terms)
+  ) {
+    return false;
+  }
+
+  return (
+    value.paper_question_evidence === undefined ||
+    (Array.isArray(value.paper_question_evidence) &&
+      value.paper_question_evidence.every(
+        (item) =>
+          isRecord(item) &&
+          typeof item.paper === "string" &&
+          typeof item.evidence === "string",
+      ))
+  );
+}
+
+function isCompletePaperSummary(value: unknown): value is PaperSummary {
+  return (
+    isRecord(value) &&
+    typeof value.paper === "string" &&
+    typeof value.summary === "string" &&
+    typeof value.question_count === "number" &&
+    Number.isFinite(value.question_count) &&
+    isStringArray(value.distinctive_topics)
+  );
+}
+
 interface TopicRepairPatch {
   replacements?: Array<{
     current_topic_name: string;
@@ -947,14 +1020,25 @@ export function validateAiAnalysisResult(
   fallbackYears: string[],
   sourcePapers?: Array<{ label: string; text: string }>,
 ): void {
-  if (!result.subject?.trim() || !Array.isArray(result.topics)) {
+  if (
+    !result.subject?.trim() ||
+    !Array.isArray(result.topics) ||
+    typeof result.overall_strategy_tip !== "string"
+  ) {
     throw new Error("Invalid AI response schema");
   }
 
-  result.topics = result.topics.filter(
-    (topic) =>
-      typeof topic?.topic_name === "string" && topic.topic_name.trim().length > 0,
-  );
+  const topicsBeforeSchemaFilter = result.topics.length;
+  result.topics = result.topics.filter(isCompleteTopicResult);
+  if (topicsBeforeSchemaFilter !== result.topics.length) {
+    logger.warn(
+      {
+        removedTopicCount: topicsBeforeSchemaFilter - result.topics.length,
+        remainingTopicCount: result.topics.length,
+      },
+      "Removed AI topics that did not match the complete topic schema",
+    );
+  }
 
   if (result.topics.length === 0) {
     throw new Error(
@@ -968,6 +1052,16 @@ export function validateAiAnalysisResult(
 
   if (!Array.isArray(result.related_topic_pairs)) {
     result.related_topic_pairs = [];
+  } else {
+    result.related_topic_pairs = result.related_topic_pairs.filter(
+      (pair): pair is string => typeof pair === "string",
+    );
+  }
+
+  if (Array.isArray(result.paper_summaries)) {
+    result.paper_summaries = result.paper_summaries.filter(isCompletePaperSummary);
+  } else {
+    result.paper_summaries = undefined;
   }
 
   const validYears = new Set(fallbackYears);

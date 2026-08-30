@@ -230,6 +230,31 @@ describe("hard-capped compact repair flow", () => {
     expect(output.result.topics).toHaveLength(18);
   });
 
+  it("does not retain compact-patch topics missing API fields", async () => {
+    const initial = makeResult(17);
+    const incomplete = {
+      topic_name: "Incomplete compact-patch topic",
+      years_appeared: ["Paper 1"],
+      study_note: makeTopic("temporary").study_note,
+      paper_question_evidence: [
+        { paper: "Paper 1", evidence: "Discuss named compact patch topic" },
+      ],
+    };
+
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(completion({ topics: [incomplete] }, 50));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(output.result.topics).toHaveLength(17);
+    expect(output.result.topics.map((topic) => topic.topic_name)).not.toContain(
+      "Incomplete compact-patch topic",
+    );
+    expect(output.degraded).toBe(true);
+  });
+
   it("accepts the best parseable result after one patch even when quality issues remain", async () => {
     const initial = makeResult(8);
 
