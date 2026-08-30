@@ -114,7 +114,7 @@ describe("vision extraction fallback", () => {
         expect.objectContaining({ mimeType: "image/png", label: expect.stringContaining("page 2") }),
         expect.objectContaining({ mimeType: "image/png", label: expect.stringContaining("page 3") }),
       ]),
-       expect.objectContaining({ batchSize: 3 }),
+       expect.objectContaining({ batchSize: 2 }),
     );
   });
 
