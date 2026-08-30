@@ -951,6 +951,83 @@ function getSchemaIncompleteTopicCount(value: unknown): {
   };
 }
 
+function buildFallbackStrategy(topics: unknown[]): string {
+  const topicNames = topics
+    .filter(isRecord)
+    .map((topic) => topic.topic_name)
+    .filter(
+      (topicName): topicName is string =>
+        typeof topicName === "string" && topicName.trim().length > 0,
+    )
+    .slice(0, 6);
+
+  return topicNames.length > 0
+    ? `Bas Pass Hona Hai: ${topicNames.join(", ")} ko pehle prepare karo, kyunki ye uploaded papers se nikle hue priority topics hain.`
+    : "Bas Pass Hona Hai: uploaded papers se verify hue high-priority topics ko pehle prepare karo.";
+}
+
+function normalizeInitialAnalysisEnvelope(
+  value: unknown,
+  fallbackSubject: string,
+  fallbackYears: string[],
+): {
+  result: AiAnalysisResult;
+  hadTopicsArray: boolean;
+  usedFallbackStrategy: boolean;
+  recoveryIssues: string[];
+} {
+  if (!isRecord(value)) {
+    throw new Error("Invalid AI response schema");
+  }
+
+  const hadTopicsArray = Array.isArray(value.topics);
+  const topics: unknown[] = Array.isArray(value.topics) ? value.topics : [];
+  const recoveryIssues: string[] = [];
+  const subject =
+    typeof value.subject === "string" && value.subject.trim().length > 0
+      ? value.subject
+      : fallbackSubject;
+  if (subject !== value.subject) {
+    recoveryIssues.push(
+      "The AI omitted the subject label, so the submitted subject was restored.",
+    );
+  }
+
+  const usedFallbackStrategy =
+    typeof value.overall_strategy_tip !== "string" ||
+    value.overall_strategy_tip.trim().length === 0;
+  const overallStrategyTip = usedFallbackStrategy
+    ? buildFallbackStrategy(topics)
+    : value.overall_strategy_tip;
+  if (usedFallbackStrategy) {
+    recoveryIssues.push(
+      "The AI omitted the overall strategy, so a safe strategy was rebuilt from its grounded topic names.",
+    );
+  }
+
+  if (!hadTopicsArray) {
+    recoveryIssues.push(
+      "The initial AI response omitted its topic array, so one bounded grounded repair was requested.",
+    );
+  }
+
+  return {
+    result: {
+      ...value,
+      subject,
+      years_analyzed: [...fallbackYears],
+      topics,
+      related_topic_pairs: Array.isArray(value.related_topic_pairs)
+        ? value.related_topic_pairs
+        : [],
+      overall_strategy_tip: overallStrategyTip,
+    } as unknown as AiAnalysisResult,
+    hadTopicsArray,
+    usedFallbackStrategy,
+    recoveryIssues,
+  };
+}
+
 function isCompletePaperSummary(value: unknown): value is PaperSummary {
   return (
     isRecord(value) &&
@@ -1485,16 +1562,23 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
       `Empty AI response (finish_reason=${choice?.finish_reason ?? "unknown"}, refusal=${choice?.message?.refusal ? "yes" : "no"})`,
     );
   }
-  let parsed: AiAnalysisResult;
+  let parsedValue: unknown;
   try {
-    parsed = JSON.parse(content) as AiAnalysisResult;
+    parsedValue = JSON.parse(content);
   } catch {
     throw new Error("AI response returned invalid JSON");
   }
 
+  const normalizedEnvelope = normalizeInitialAnalysisEnvelope(
+    parsedValue,
+    params.subject,
+    params.yearLabels,
+  );
+  let parsed = normalizedEnvelope.result;
   const initialTopicSchema = getSchemaIncompleteTopicCount(parsed);
   const canRecoverWithoutAcceptedTopics =
-    initialTopicSchema.total > 0 &&
+    !normalizedEnvelope.hadTopicsArray ||
+    initialTopicSchema.total === 0 ||
     initialTopicSchema.incomplete === initialTopicSchema.total;
   let initialSchemaRecoveryIssue: string | undefined;
   try {
@@ -1509,32 +1593,41 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
     }
 
     initialSchemaRecoveryIssue =
-      `The initial AI response returned ${initialTopicSchema.total} topic entries, but none matched the complete topic schema. A single grounded repair was requested.`;
+      initialTopicSchema.total > 0
+        ? `The initial AI response returned ${initialTopicSchema.total} topic entries, but none matched the complete topic schema. A single grounded repair was requested.`
+        : "The initial AI response did not contain any usable topic entries. A single grounded repair was requested.";
     parsed = { ...parsed, topics: [] };
     logger.warn(
       {
         analysisId: params.analysisId,
         initialTopicCount: initialTopicSchema.total,
         incompleteTopicCount: initialTopicSchema.incomplete,
+        hadTopicsArray: normalizedEnvelope.hadTopicsArray,
       },
-      "Initial AI topics were all structurally incomplete; attempting bounded recovery",
+      "Initial AI response had no usable topics; attempting bounded recovery",
     );
   }
 
-  let degraded = Boolean(initialSchemaRecoveryIssue);
+  let degraded =
+    normalizedEnvelope.recoveryIssues.length > 0 ||
+    Boolean(initialSchemaRecoveryIssue);
   const strictFivePaperQuality = params.yearLabels.length >= 4;
-  let qualityIssues = initialSchemaRecoveryIssue
+  let repairIssues = initialSchemaRecoveryIssue
     ? [initialSchemaRecoveryIssue]
     : getTopicQualityIssues(parsed, params.yearLabels.length);
+  let qualityIssues = [
+    ...normalizedEnvelope.recoveryIssues,
+    ...repairIssues,
+  ];
   try {
-    if (qualityIssues.length > 0) {
+    if (repairIssues.length > 0) {
       logger.warn(
-        { issues: qualityIssues },
+        { issues: repairIssues },
         "AI analysis failed topic-quality checks; requesting the single compact patch",
       );
       const patchResponse = await makeTargetedRepairRequest(
         content,
-        qualityIssues,
+        repairIssues,
         parsed.topics.length,
       );
       const correctedContent = patchResponse.choices[0]?.message?.content ?? "";
@@ -1553,12 +1646,17 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
       }
 
       parsed = applyTopicRepairPatch(parsed, repairPatch as TopicRepairPatch);
+      if (normalizedEnvelope.usedFallbackStrategy) {
+        parsed.overall_strategy_tip = buildFallbackStrategy(parsed.topics);
+      }
       validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
+      repairIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
       qualityIssues = [
+        ...normalizedEnvelope.recoveryIssues,
         ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
-        ...getTopicQualityIssues(parsed, params.yearLabels.length),
+        ...repairIssues,
       ];
-      if (qualityIssues.length > 0) {
+      if (repairIssues.length > 0) {
         degraded = true;
         logger.warn(
           { issues: qualityIssues, topicCount: parsed.topics.length },
@@ -1577,6 +1675,7 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
     }
     degraded = true;
     qualityIssues = [
+      ...normalizedEnvelope.recoveryIssues,
       ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
       ...getTopicQualityIssues(parsed, params.yearLabels.length),
     ];

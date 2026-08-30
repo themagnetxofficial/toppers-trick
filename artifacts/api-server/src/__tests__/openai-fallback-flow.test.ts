@@ -219,6 +219,50 @@ describe("hard-capped compact repair flow", () => {
     );
   });
 
+  it("normalizes omitted top-level metadata without rejecting valid grounded topics", async () => {
+    const initial = makeResult(18);
+    delete (initial as Partial<AiAnalysisResult>).subject;
+    delete (initial as Partial<AiAnalysisResult>).overall_strategy_tip;
+    createCompletion.mockResolvedValueOnce(completion(initial, 100));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(1);
+    expect(output.result.subject).toBe("Business Communication");
+    expect(output.result.overall_strategy_tip).toContain("Bas Pass Hona Hai:");
+    expect(output.result.overall_strategy_tip).toContain("Specific Topic 1");
+    expect(output.result.topics).toHaveLength(18);
+    expect(output.degraded).toBe(true);
+    expect(output.qualityIssues).toContain(
+      "The AI omitted the subject label, so the submitted subject was restored.",
+    );
+    expect(output.qualityIssues).toContain(
+      "The AI omitted the overall strategy, so a safe strategy was rebuilt from its grounded topic names.",
+    );
+  });
+
+  it("uses the single grounded repair when the initial topic array is omitted", async () => {
+    const initial = makeResult(1) as Partial<AiAnalysisResult>;
+    delete initial.topics;
+    const recoveredTopic = makeTopic("Recovered missing-array topic");
+
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(completion({ topics: [recoveredTopic] }, 50));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(output.result.topics).toEqual([recoveredTopic]);
+    expect(output.degraded).toBe(true);
+    expect(output.qualityIssues).toContain(
+      "The initial AI response omitted its topic array, so one bounded grounded repair was requested.",
+    );
+    expect(output.qualityIssues).toContain(
+      "The initial AI response did not contain any usable topic entries. A single grounded repair was requested.",
+    );
+  });
+
   it("fails clearly after bounded recovery cannot produce a schema-valid topic", async () => {
     const initial = makeResult(2);
     for (const topic of initial.topics) {
