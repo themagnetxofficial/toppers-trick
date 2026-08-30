@@ -937,6 +937,141 @@ function isCompleteTopicResult(value: unknown): value is TopicResult {
   );
 }
 
+function normalizeTopicSchemaMetadata(
+  value: unknown,
+  fallbackYears: string[],
+): unknown {
+  if (!isRecord(value)) return value;
+
+  const evidencePapers = Array.isArray(value.paper_question_evidence)
+    ? value.paper_question_evidence
+        .filter(isRecord)
+        .map((item) => item.paper)
+        .filter(
+          (paper): paper is string =>
+            typeof paper === "string" && fallbackYears.includes(paper),
+        )
+    : [];
+  const yearsAppeared = isStringArray(value.years_appeared)
+    ? value.years_appeared
+    : [...new Set(evidencePapers)];
+  const frequency =
+    typeof value.frequency === "number" && Number.isFinite(value.frequency)
+      ? value.frequency
+      : yearsAppeared.length;
+  const priority =
+    value.priority === "High" ||
+    value.priority === "Medium" ||
+    value.priority === "Low"
+      ? value.priority
+      : frequency >= 3
+        ? "High"
+        : frequency >= 2
+          ? "Medium"
+          : "Low";
+  const confidenceLevel =
+    value.confidence_level === "High" ||
+    value.confidence_level === "Medium" ||
+    value.confidence_level === "Low"
+      ? value.confidence_level
+      : frequency >= 3
+        ? "High"
+        : frequency >= 2
+          ? "Medium"
+          : "Low";
+  const rawBreakdown = isRecord(value.question_type_breakdown)
+    ? value.question_type_breakdown
+    : {};
+  const questionTypeBreakdown: QuestionTypeBreakdown = {
+    mcq: typeof rawBreakdown.mcq === "string" ? rawBreakdown.mcq : "Not specified",
+    short:
+      typeof rawBreakdown.short === "string"
+        ? rawBreakdown.short
+        : "Not specified",
+    long:
+      typeof rawBreakdown.long === "string"
+        ? rawBreakdown.long
+        : "Not specified",
+    case_study:
+      typeof rawBreakdown.case_study === "string"
+        ? rawBreakdown.case_study
+        : "Not specified",
+  };
+  const keyTerms = Array.isArray(value.key_terms)
+    ? value.key_terms.filter((term): term is string => typeof term === "string")
+    : [];
+
+  return {
+    ...value,
+    priority,
+    frequency,
+    years_appeared: yearsAppeared,
+    confidence_level: confidenceLevel,
+    marks_weightage:
+      typeof value.marks_weightage === "string"
+        ? value.marks_weightage
+        : "Not specified",
+    question_type_breakdown: questionTypeBreakdown,
+    key_terms: keyTerms,
+  };
+}
+
+function normalizeTopicListSchemaMetadata(
+  value: unknown,
+  fallbackYears: string[],
+): { topics: TopicResult[]; recoveredCount: number } {
+  if (!Array.isArray(value)) return { topics: [], recoveredCount: 0 };
+
+  let recoveredCount = 0;
+  const topics = value.map((topic) => {
+    const wasComplete = isCompleteTopicResult(topic);
+    const normalized = normalizeTopicSchemaMetadata(topic, fallbackYears);
+    if (!wasComplete && isCompleteTopicResult(normalized)) {
+      recoveredCount += 1;
+    }
+    return normalized;
+  });
+
+  return {
+    topics: topics as TopicResult[],
+    recoveredCount,
+  };
+}
+
+function normalizeRepairPatchSchemaMetadata(
+  value: Record<string, unknown>,
+  fallbackYears: string[],
+): { patch: TopicRepairPatch; recoveredCount: number } {
+  const additions = normalizeTopicListSchemaMetadata(
+    value.topics,
+    fallbackYears,
+  );
+  let recoveredCount = additions.recoveredCount;
+  const replacements = Array.isArray(value.replacements)
+    ? value.replacements.map((replacement) => {
+        if (!isRecord(replacement)) return replacement;
+        const normalized = normalizeTopicListSchemaMetadata(
+          [replacement.topic],
+          fallbackYears,
+        );
+        recoveredCount += normalized.recoveredCount;
+        return {
+          ...replacement,
+          topic: normalized.topics[0],
+        };
+      })
+    : undefined;
+
+  return {
+    patch: {
+      ...value,
+      topics: additions.topics,
+      replacements,
+    } as unknown as TopicRepairPatch,
+    recoveredCount,
+  };
+}
+
 function getSchemaIncompleteTopicCount(value: unknown): {
   total: number;
   incomplete: number;
@@ -1575,6 +1710,19 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
     params.yearLabels,
   );
   let parsed = normalizedEnvelope.result;
+  const normalizedInitialTopics = normalizeTopicListSchemaMetadata(
+    parsed.topics,
+    params.yearLabels,
+  );
+  parsed = {
+    ...parsed,
+    topics: normalizedInitialTopics.topics,
+  };
+  if (normalizedInitialTopics.recoveredCount > 0) {
+    normalizedEnvelope.recoveryIssues.push(
+      `Recovered missing non-grounding metadata for ${normalizedInitialTopics.recoveredCount} initial topic entries while preserving strict evidence and study-note validation.`,
+    );
+  }
   const initialTopicSchema = getSchemaIncompleteTopicCount(parsed);
   const canRecoverWithoutAcceptedTopics =
     !normalizedEnvelope.hadTopicsArray ||
@@ -1645,7 +1793,16 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
         throw new Error("AI did not return a usable compact topic patch");
       }
 
-      parsed = applyTopicRepairPatch(parsed, repairPatch as TopicRepairPatch);
+      const normalizedRepairPatch = normalizeRepairPatchSchemaMetadata(
+        repairPatch as Record<string, unknown>,
+        params.yearLabels,
+      );
+      if (normalizedRepairPatch.recoveredCount > 0) {
+        normalizedEnvelope.recoveryIssues.push(
+          `Recovered missing non-grounding metadata for ${normalizedRepairPatch.recoveredCount} repaired topic entries while preserving strict evidence and study-note validation.`,
+        );
+      }
+      parsed = applyTopicRepairPatch(parsed, normalizedRepairPatch.patch);
       if (normalizedEnvelope.usedFallbackStrategy) {
         parsed.overall_strategy_tip = buildFallbackStrategy(parsed.topics);
       }

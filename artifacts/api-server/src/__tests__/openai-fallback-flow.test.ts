@@ -194,8 +194,7 @@ describe("hard-capped compact repair flow", () => {
   it("uses the single compact repair when every initial topic is structurally incomplete", async () => {
     const initial = makeResult(3);
     for (const topic of initial.topics) {
-      delete (topic as Partial<TopicResult>).question_type_breakdown;
-      delete (topic as Partial<TopicResult>).key_terms;
+      topic.study_note = {} as TopicResult["study_note"];
     }
     const recoveredTopic = makeTopic("Recovered grounded topic");
 
@@ -216,6 +215,60 @@ describe("hard-capped compact repair flow", () => {
     );
     expect(createCompletion.mock.calls[1]![0].messages[1].content).toContain(
       "No topics from the initial response were accepted",
+    );
+  });
+
+  it("recovers missing non-grounding metadata without discarding grounded initial topics", async () => {
+    const initial = makeResult(18);
+    for (const topic of initial.topics) {
+      delete (topic as Partial<TopicResult>).question_type_breakdown;
+      delete (topic as Partial<TopicResult>).key_terms;
+      delete (topic as Partial<TopicResult>).marks_weightage;
+    }
+    createCompletion.mockResolvedValueOnce(completion(initial, 100));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(1);
+    expect(output.result.topics).toHaveLength(18);
+    expect(output.result.topics[0]?.question_type_breakdown).toEqual({
+      mcq: "Not specified",
+      short: "Not specified",
+      long: "Not specified",
+      case_study: "Not specified",
+    });
+    expect(output.result.topics[0]?.key_terms).toEqual([]);
+    expect(output.result.topics[0]?.marks_weightage).toBe("Not specified");
+    expect(output.degraded).toBe(true);
+    expect(output.qualityIssues).toContain(
+      "Recovered missing non-grounding metadata for 18 initial topic entries while preserving strict evidence and study-note validation.",
+    );
+  });
+
+  it("recovers missing non-grounding metadata from the single repair response", async () => {
+    const initial = makeResult(2);
+    for (const topic of initial.topics) {
+      topic.study_note = {} as TopicResult["study_note"];
+    }
+    const repairedTopic = makeTopic("Recovered repair topic");
+    delete (repairedTopic as Partial<TopicResult>).question_type_breakdown;
+    delete (repairedTopic as Partial<TopicResult>).key_terms;
+
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(completion({ topics: [repairedTopic] }, 50));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(output.result.topics).toHaveLength(1);
+    expect(output.result.topics[0]?.topic_name).toBe("Recovered repair topic");
+    expect(output.result.topics[0]?.question_type_breakdown.mcq).toBe(
+      "Not specified",
+    );
+    expect(output.result.topics[0]?.key_terms).toEqual([]);
+    expect(output.qualityIssues).toContain(
+      "Recovered missing non-grounding metadata for 1 repaired topic entries while preserving strict evidence and study-note validation.",
     );
   });
 
@@ -266,8 +319,7 @@ describe("hard-capped compact repair flow", () => {
   it("fails clearly after bounded recovery cannot produce a schema-valid topic", async () => {
     const initial = makeResult(2);
     for (const topic of initial.topics) {
-      delete (topic as Partial<TopicResult>).question_type_breakdown;
-      delete (topic as Partial<TopicResult>).key_terms;
+      topic.study_note = {} as TopicResult["study_note"];
     }
 
     createCompletion
@@ -317,12 +369,16 @@ describe("hard-capped compact repair flow", () => {
     expect(output.result.topics).toHaveLength(18);
   });
 
-  it("does not retain compact-patch topics missing API fields", async () => {
+  it("does not retain compact-patch topics missing grounded study content", async () => {
     const initial = makeResult(17);
     const incomplete = {
       topic_name: "Incomplete compact-patch topic",
       years_appeared: ["Paper 1"],
-      study_note: makeTopic("temporary").study_note,
+      study_note: {
+        kya_padhna_hai:
+          "- Named definition\n- Named comparison\n- Named format\n- Applied scenario",
+        kaise_poochha_jaata_hai: "Short answer mein poochha gaya.",
+      },
       paper_question_evidence: [
         { paper: "Paper 1", evidence: "Discuss named compact patch topic" },
       ],
