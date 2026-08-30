@@ -937,6 +937,20 @@ function isCompleteTopicResult(value: unknown): value is TopicResult {
   );
 }
 
+function getSchemaIncompleteTopicCount(value: unknown): {
+  total: number;
+  incomplete: number;
+} {
+  if (!isRecord(value) || !Array.isArray(value.topics)) {
+    return { total: 0, incomplete: 0 };
+  }
+
+  return {
+    total: value.topics.length,
+    incomplete: value.topics.filter((topic) => !isCompleteTopicResult(topic)).length,
+  };
+}
+
 function isCompletePaperSummary(value: unknown): value is PaperSummary {
   return (
     isRecord(value) &&
@@ -1395,9 +1409,15 @@ Rules for this response:
   ) => {
     const missingTopicCount = Math.max(0, minimumTopicCount - acceptedTopicCount);
     const additionRequirement =
-      missingTopicCount > 0
+      acceptedTopicCount === 0
+        ? "No topics from the initial response were accepted because its topic objects were structurally incomplete. Rebuild grounded, complete topic objects in \"topics\" from the paper text. Do not use \"replacements\" because there are no accepted topics to replace."
+        : missingTopicCount > 0
         ? `The accepted analysis already has ${acceptedTopicCount} valid topics. Return up to ${missingTopicCount} NEW, distinct topic objects in "topics" only when each one is directly supported by the paper text. Returning fewer is correct; never invent or pad topics to reach ${minimumTopicCount}.`
         : "Do not add topics unless they are required to resolve one of the listed quality failures.";
+    const repairModeInstruction =
+      acceptedTopicCount === 0
+        ? "The initial response contains no accepted topics. Rebuild the grounded topic list from the provided paper text using the complete original topic schema."
+        : "Do not regenerate or rewrite accepted topics.";
 
     return runAnalysisRequest("targeted_quality_repair", initialModel, (signal) =>
       getOpenAI().chat.completions.create({
@@ -1407,7 +1427,7 @@ Rules for this response:
         {
           role: "system",
           content:
-            "You repair an existing exam-analysis JSON without regenerating accepted content. Return JSON only. Every replacement or addition must include verbatim paper_question_evidence and complete non-empty study_note fields. If the papers do not support enough new topics, return fewer topics rather than padding.",
+            `You repair an existing exam-analysis JSON. ${repairModeInstruction} Return JSON only. Every replacement or addition must include verbatim paper_question_evidence and complete non-empty study_note fields. If the papers do not support enough new topics, return fewer topics rather than padding.`,
         },
         {
           role: "user",
@@ -1472,11 +1492,40 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
     throw new Error("AI response returned invalid JSON");
   }
 
-  validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
+  const initialTopicSchema = getSchemaIncompleteTopicCount(parsed);
+  const canRecoverWithoutAcceptedTopics =
+    initialTopicSchema.total > 0 &&
+    initialTopicSchema.incomplete === initialTopicSchema.total;
+  let initialSchemaRecoveryIssue: string | undefined;
+  try {
+    validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
+  } catch (err) {
+    if (
+      !canRecoverWithoutAcceptedTopics ||
+      !(err instanceof Error) ||
+      !err.message.includes("did not include any usable topics")
+    ) {
+      throw err;
+    }
 
-  let degraded = false;
+    initialSchemaRecoveryIssue =
+      `The initial AI response returned ${initialTopicSchema.total} topic entries, but none matched the complete topic schema. A single grounded repair was requested.`;
+    parsed = { ...parsed, topics: [] };
+    logger.warn(
+      {
+        analysisId: params.analysisId,
+        initialTopicCount: initialTopicSchema.total,
+        incompleteTopicCount: initialTopicSchema.incomplete,
+      },
+      "Initial AI topics were all structurally incomplete; attempting bounded recovery",
+    );
+  }
+
+  let degraded = Boolean(initialSchemaRecoveryIssue);
   const strictFivePaperQuality = params.yearLabels.length >= 4;
-  let qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+  let qualityIssues = initialSchemaRecoveryIssue
+    ? [initialSchemaRecoveryIssue]
+    : getTopicQualityIssues(parsed, params.yearLabels.length);
   try {
     if (qualityIssues.length > 0) {
       logger.warn(
@@ -1505,7 +1554,10 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
 
       parsed = applyTopicRepairPatch(parsed, repairPatch as TopicRepairPatch);
       validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
-      qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+      qualityIssues = [
+        ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
+        ...getTopicQualityIssues(parsed, params.yearLabels.length),
+      ];
       if (qualityIssues.length > 0) {
         degraded = true;
         logger.warn(
@@ -1518,8 +1570,16 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
     }
   } catch (err) {
     if (!(err instanceof AnalysisDeadlineExceededError)) throw err;
+    if (initialSchemaRecoveryIssue && parsed.topics.length === 0) {
+      throw new Error(
+        "The initial AI response had no schema-valid topics and the bounded repair did not complete.",
+      );
+    }
     degraded = true;
-    qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+    qualityIssues = [
+      ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
+      ...getTopicQualityIssues(parsed, params.yearLabels.length),
+    ];
     logger.warn(
       {
         analysisId: params.analysisId,

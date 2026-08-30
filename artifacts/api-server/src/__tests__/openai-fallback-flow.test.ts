@@ -191,6 +191,49 @@ describe("hard-capped compact repair flow", () => {
     );
   });
 
+  it("uses the single compact repair when every initial topic is structurally incomplete", async () => {
+    const initial = makeResult(3);
+    for (const topic of initial.topics) {
+      delete (topic as Partial<TopicResult>).question_type_breakdown;
+      delete (topic as Partial<TopicResult>).key_terms;
+    }
+    const recoveredTopic = makeTopic("Recovered grounded topic");
+
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(completion({ topics: [recoveredTopic] }, 50));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(output.result.topics).toEqual([recoveredTopic]);
+    expect(output.degraded).toBe(true);
+    expect(output.qualityIssues).toContain(
+      "The initial AI response returned 3 topic entries, but none matched the complete topic schema. A single grounded repair was requested.",
+    );
+    expect(createCompletion.mock.calls[1]![0].messages[0].content).toContain(
+      "initial response contains no accepted topics",
+    );
+    expect(createCompletion.mock.calls[1]![0].messages[1].content).toContain(
+      "No topics from the initial response were accepted",
+    );
+  });
+
+  it("fails clearly after bounded recovery cannot produce a schema-valid topic", async () => {
+    const initial = makeResult(2);
+    for (const topic of initial.topics) {
+      delete (topic as Partial<TopicResult>).question_type_breakdown;
+      delete (topic as Partial<TopicResult>).key_terms;
+    }
+
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(completion({ topics: [] }, 50));
+
+    await expect(runAnalysis()).rejects.toThrow("did not include any usable topics");
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+  });
+
   it("drops fabricated or incomplete topics returned by the compact patch", async () => {
     const initial = makeResult(17);
     const fabricated = makeTopic("General subject knowledge");
