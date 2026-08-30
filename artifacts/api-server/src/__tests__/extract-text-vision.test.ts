@@ -28,7 +28,10 @@ vi.mock("pdf-parse", () => ({
 
 vi.mock("../lib/openai", () => ({ transcribeImagesWithVision }));
 
-import { extractTextFromFile } from "../lib/extractText";
+import {
+  extractTextFromFile,
+  extractTextFromFilesWithLabels,
+} from "../lib/extractText";
 
 const temporaryFiles: string[] = [];
 
@@ -111,8 +114,63 @@ describe("vision extraction fallback", () => {
         expect.objectContaining({ mimeType: "image/png", label: expect.stringContaining("page 2") }),
         expect.objectContaining({ mimeType: "image/png", label: expect.stringContaining("page 3") }),
       ]),
-      expect.objectContaining({ batchSize: 2 }),
+       expect.objectContaining({ batchSize: 3 }),
     );
+  });
+
+  it("extracts files concurrently while preserving paper order and progress metadata", async () => {
+    const firstFile = makeTemporaryFile(".png");
+    const secondFile = makeTemporaryFile(".jpg");
+    const progress: Array<{
+      fileIndex: number;
+      fileName: string;
+      current: number;
+      total: number;
+    }> = [];
+
+    transcribeImagesWithVision.mockImplementation(
+      async (
+        images: Array<{ label: string }>,
+        options?: { onImageComplete?: () => void | Promise<void> },
+      ) => {
+        const label = images[0]!.label;
+        if (label === path.basename(firstFile)) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        await options?.onImageComplete?.();
+        return `Transcribed ${label}`;
+      },
+    );
+
+    const result = await extractTextFromFilesWithLabels(
+      [firstFile, secondFile],
+      {
+        onProgress: async ({ fileIndex, fileName, current, total }) => {
+          progress.push({ fileIndex, fileName, current, total });
+        },
+      },
+    );
+
+    expect(result.papers).toEqual([
+      { label: "Paper 1", text: `Transcribed ${path.basename(firstFile)}` },
+      { label: "Paper 2", text: `Transcribed ${path.basename(secondFile)}` },
+    ]);
+    expect(progress.slice(0, 2)).toEqual([
+      { fileIndex: 0, fileName: path.basename(firstFile), current: 0, total: 0 },
+      { fileIndex: 1, fileName: path.basename(secondFile), current: 0, total: 0 },
+    ]);
+    expect(progress).toContainEqual({
+      fileIndex: 0,
+      fileName: path.basename(firstFile),
+      current: 1,
+      total: 1,
+    });
+    expect(progress).toContainEqual({
+      fileIndex: 1,
+      fileName: path.basename(secondFile),
+      current: 1,
+      total: 1,
+    });
   });
 
   it.each([".jpg", ".png"] as const)(

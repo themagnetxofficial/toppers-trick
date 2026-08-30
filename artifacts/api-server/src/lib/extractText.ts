@@ -101,7 +101,7 @@ async function transcribeScannedPdfWithVision(
     let progressChain = Promise.resolve();
     const transcriptionOptions = onPageComplete
       ? {
-          batchSize: 2,
+          batchSize: 3,
           onImageComplete: () => {
             completedPages += 1;
             progressChain = progressChain.then(() =>
@@ -110,7 +110,7 @@ async function transcribeScannedPdfWithVision(
             return progressChain;
           },
         }
-      : { batchSize: 2 };
+      : { batchSize: 3 };
 
     return transcriptionOptions
       ? await transcribeImagesWithVision(pages, transcriptionOptions)
@@ -191,17 +191,20 @@ export async function extractTextFromFilesWithLabels(
   papers: Array<{ label: string; text: string }>;
   extractedCharacterCount: number;
 }> {
-  const texts: string[] = [];
-  for (const [fileIndex, filePath] of filePaths.entries()) {
-    await options.onProgress?.({
-      fileIndex,
-      fileCount: filePaths.length,
-      fileName: path.basename(filePath),
-      current: 0,
-      total: 0,
-    });
-    texts.push(
-      await extractTextFromFile(filePath, (current, total) =>
+  await Promise.all(
+    filePaths.map((filePath, fileIndex) =>
+      options.onProgress?.({
+        fileIndex,
+        fileCount: filePaths.length,
+        fileName: path.basename(filePath),
+        current: 0,
+        total: 0,
+      }),
+    ),
+  );
+  const texts = await Promise.all(
+    filePaths.map((filePath, fileIndex) =>
+      extractTextFromFile(filePath, (current, total) =>
         options.onProgress?.({
           fileIndex,
           fileCount: filePaths.length,
@@ -210,8 +213,8 @@ export async function extractTextFromFilesWithLabels(
           total,
         }),
       ),
-    );
-  }
+    ),
+  );
   const yearLabels = filePaths.map((_, i) => `Paper ${i + 1}`);
   const papers = texts.map((text, i) => ({
     label: yearLabels[i],

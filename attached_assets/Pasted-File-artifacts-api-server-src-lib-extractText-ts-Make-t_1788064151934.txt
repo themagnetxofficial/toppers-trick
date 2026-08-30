@@ -1,0 +1,68 @@
+File: artifacts/api-server/src/lib/extractText.ts
+
+Make two targeted performance changes to the OCR/vision-transcription pipeline. Do not touch any AI-analysis prompt, model-selection logic, or quality-check code in openai.ts beyond what's specified below.
+
+FIX 1 — Parallelize across files instead of processing them sequentially.
+In `extractTextFromFilesWithLabels`, find:
+
+  const texts: string[] = [];
+  for (const [fileIndex, filePath] of filePaths.entries()) {
+    await options.onProgress?.({
+      fileIndex,
+      fileCount: filePaths.length,
+      fileName: path.basename(filePath),
+      current: 0,
+      total: 0,
+    });
+    texts.push(
+      await extractTextFromFile(filePath, (current, total) =>
+        options.onProgress?.({
+          fileIndex,
+          fileCount: filePaths.length,
+          fileName: path.basename(filePath),
+          current,
+          total,
+        }),
+      ),
+    );
+  }
+
+Replace it with a parallel version using Promise.all, preserving output order and per-file progress reporting:
+
+  await Promise.all(
+    filePaths.map((filePath) =>
+      options.onProgress?.({
+        fileIndex: filePaths.indexOf(filePath),
+        fileCount: filePaths.length,
+        fileName: path.basename(filePath),
+        current: 0,
+        total: 0,
+      }),
+    ),
+  );
+  const texts = await Promise.all(
+    filePaths.map((filePath, fileIndex) =>
+      extractTextFromFile(filePath, (current, total) =>
+        options.onProgress?.({
+          fileIndex,
+          fileCount: filePaths.length,
+          fileName: path.basename(filePath),
+          current,
+          total,
+        }),
+      ),
+    ),
+  );
+
+Note: the shared vision-transcription concurrency limit (MAX_CONCURRENT_VISION_TRANSCRIPTIONS = 3 in openai.ts) already applies globally across all in-flight calls, so parallelizing here does not bypass that limit — it just lets all files compete for the same shared pool instead of processing one file fully before starting the next, keeping the 3 concurrent slots continuously busy.
+
+FIX 2 — Increase batch size for scanned-PDF vision transcription from 2 to 3.
+In `transcribeScannedPdfWithVision`, find both occurrences of:
+  batchSize: 2,
+and
+  { batchSize: 2 };
+Change both to batchSize: 3.
+
+Do not change MAX_CONCURRENT_VISION_TRANSCRIPTIONS, the vision model selection, the max_completion_tokens limits, or any prompt text in these functions.
+
+After making these changes, run the full test suite for this file and any related tests (search for extractText or vision-transcription test files) and confirm nothing breaks. Report any test failures without attempting to silently work around them.
