@@ -311,6 +311,10 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
 
   const totalPages = await getTotalPageCount(filePaths);
   const requiredCredits = getCreditsForPageCount(totalPages);
+  logger.info(
+    { filePaths: filePaths.map((fp) => path.basename(fp)), totalPages, requiredCredits },
+    "Computed page-count-based credit tier for new analysis",
+  );
 
   try {
     const analysis = await db.transaction(async (tx) => {
