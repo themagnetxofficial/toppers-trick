@@ -1,0 +1,59 @@
+File: artifacts/api-server/src/lib/openai.ts
+
+Add a catastrophic-quality hard-failure check inside the analyzeWithAI function's repair-handling block. This should trigger ONLY when the topic count is severely below target after repair (below 30% of the minimum required), not for other quality issues like missing bullets or unmatched distinctive topics alone.
+
+Find this block (inside the `try { if (repairIssues.length > 0) { ... } }` section, right after repairIssues is recalculated post-repair):
+
+      repairIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+      qualityIssues = [
+        ...normalizedEnvelope.recoveryIssues,
+        ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
+        ...repairIssues,
+      ];
+      if (repairIssues.length > 0) {
+        degraded = true;
+        logger.warn(
+          { issues: qualityIssues, topicCount: parsed.topics.length },
+          strictFivePaperQuality
+            ? "Multi-paper compact topic patch still has quality issues; returning a degraded result"
+            : "Compact topic patch completed; accepting the best parseable result with quality warnings",
+        );
+      }
+
+Replace it with:
+
+      repairIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+      qualityIssues = [
+        ...normalizedEnvelope.recoveryIssues,
+        ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
+        ...repairIssues,
+      ];
+      if (repairIssues.length > 0) {
+        const minimumTopicCount = getMinimumTopicCount(params.yearLabels.length);
+        const catastrophicFloor = Math.ceil(minimumTopicCount * 0.3);
+        if (parsed.topics.length < catastrophicFloor) {
+          throw new Error(
+            `Analysis quality too low to return: only ${parsed.topics.length} topics remained after repair, below the minimum acceptable floor of ${catastrophicFloor} (30% of the ${minimumTopicCount}-topic target for this ${params.yearLabels.length}-paper analysis). Issues: ${qualityIssues.slice(0, 3).join(" ")}`,
+          );
+        }
+        degraded = true;
+        logger.warn(
+          { issues: qualityIssues, topicCount: parsed.topics.length },
+          strictFivePaperQuality
+            ? "Multi-paper compact topic patch still has quality issues; returning a degraded result"
+            : "Compact topic patch completed; accepting the best parseable result with quality warnings",
+        );
+      }
+
+Important: this new `throw` must propagate normally (it is not an AnalysisDeadlineExceededError, so the existing surrounding catch block — which only swallows AnalysisDeadlineExceededError and rethrows everything else — will correctly rethrow it up to the route handler, which already persists the failure and refunds the correct `creditsCharged` amount).
+
+Do not change any other logic — the deadline-exceeded catch block, the initial-schema-recovery handling, and the `strictFivePaperQuality` log-message selection all stay exactly as they are. Do not touch any prompt content, model selection, repair-call logic, or anything outside this one block.
+
+After the change, run the full test suite. Add test coverage for:
+- An analysis where repair still leaves topics well below 30% of the minimum (should throw and result in a failed/refunded analysis).
+- One where repair leaves topics at or above 30% but still short of full target (should still return degraded, not throw) — verify both boundary behaviors explicitly.
+
+IMPORTANT SAFETY CHECK before finishing this task:
+After making the change, do NOT just run the automated test suite. Additionally, trace through the logic manually and confirm: for any analysis where topics.length is well above the 30%-floor (e.g., 15+ topics for an 18-topic target, or any case matching previously-passing test fixtures), the new `if (parsed.topics.length < catastrophicFloor)` condition evaluates to false and execution proceeds EXACTLY as before (degraded=true, warning logged, no throw). Explicitly state in your summary that you traced this and confirmed no behavior change for non-catastrophic cases.
+
+Report full test results without silently working around failures.
