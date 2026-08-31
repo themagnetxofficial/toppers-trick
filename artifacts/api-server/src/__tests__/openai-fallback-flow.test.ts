@@ -197,15 +197,22 @@ describe("hard-capped compact repair flow", () => {
       topic.study_note = {} as TopicResult["study_note"];
     }
     const recoveredTopic = makeTopic("Recovered grounded topic");
+    const recoveredTopics = [
+      recoveredTopic,
+      ...Array.from({ length: 5 }, (_, index) =>
+        makeTopic(`Recovered grounded topic ${index + 2}`),
+      ),
+    ];
 
     createCompletion
       .mockResolvedValueOnce(completion(initial, 100))
-      .mockResolvedValueOnce(completion({ topics: [recoveredTopic] }, 50));
+      .mockResolvedValueOnce(completion({ topics: recoveredTopics }, 50));
 
     const output = await runAnalysis();
 
     expect(createCompletion).toHaveBeenCalledTimes(2);
-    expect(output.result.topics).toEqual([recoveredTopic]);
+    expect(output.result.topics).toHaveLength(6);
+    expect(output.result.topics[0]).toEqual(recoveredTopic);
     expect(output.degraded).toBe(true);
     expect(output.qualityIssues).toContain(
       "The initial AI response returned 3 topic entries, but none matched the complete topic schema. A single grounded repair was requested.",
@@ -253,15 +260,21 @@ describe("hard-capped compact repair flow", () => {
     const repairedTopic = makeTopic("Recovered repair topic");
     delete (repairedTopic as Partial<TopicResult>).question_type_breakdown;
     delete (repairedTopic as Partial<TopicResult>).key_terms;
+    const repairedTopics = [
+      repairedTopic,
+      ...Array.from({ length: 5 }, (_, index) =>
+        makeTopic(`Recovered repair topic ${index + 2}`),
+      ),
+    ];
 
     createCompletion
       .mockResolvedValueOnce(completion(initial, 100))
-      .mockResolvedValueOnce(completion({ topics: [repairedTopic] }, 50));
+      .mockResolvedValueOnce(completion({ topics: repairedTopics }, 50));
 
     const output = await runAnalysis();
 
     expect(createCompletion).toHaveBeenCalledTimes(2);
-    expect(output.result.topics).toHaveLength(1);
+    expect(output.result.topics).toHaveLength(6);
     expect(output.result.topics[0]?.topic_name).toBe("Recovered repair topic");
     expect(output.result.topics[0]?.question_type_breakdown.mcq).toBe(
       "Not specified",
@@ -298,15 +311,22 @@ describe("hard-capped compact repair flow", () => {
     const initial = makeResult(1) as Partial<AiAnalysisResult>;
     delete initial.topics;
     const recoveredTopic = makeTopic("Recovered missing-array topic");
+    const recoveredTopics = [
+      recoveredTopic,
+      ...Array.from({ length: 5 }, (_, index) =>
+        makeTopic(`Recovered missing-array topic ${index + 2}`),
+      ),
+    ];
 
     createCompletion
       .mockResolvedValueOnce(completion(initial, 100))
-      .mockResolvedValueOnce(completion({ topics: [recoveredTopic] }, 50));
+      .mockResolvedValueOnce(completion({ topics: recoveredTopics }, 50));
 
     const output = await runAnalysis();
 
     expect(createCompletion).toHaveBeenCalledTimes(2);
-    expect(output.result.topics).toEqual([recoveredTopic]);
+    expect(output.result.topics).toHaveLength(6);
+    expect(output.result.topics[0]).toEqual(recoveredTopic);
     expect(output.degraded).toBe(true);
     expect(output.qualityIssues).toContain(
       "The initial AI response omitted its topic array, so one bounded grounded repair was requested.",
@@ -447,6 +467,34 @@ describe("hard-capped compact repair flow", () => {
     expect(createCompletion.mock.calls[0]![0].messages[1].content).toContain(
       "Biology-specific guardrail",
     );
+  });
+
+  it("throws when compact repair leaves topics below the catastrophic quality floor", async () => {
+    createCompletion
+      .mockResolvedValueOnce(completion(makeResult(5), 100))
+      .mockResolvedValueOnce(completion({ topics: [] }, 50));
+
+    await expect(runAnalysis()).rejects.toThrow(
+      "only 5 topics remained after repair, below the minimum acceptable floor of 6",
+    );
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts the exact catastrophic floor as a degraded result", async () => {
+    createCompletion
+      .mockResolvedValueOnce(completion(makeResult(5), 100))
+      .mockResolvedValueOnce(
+        completion({ topics: [makeTopic("Specific Topic 6")] }, 50),
+      );
+
+    const output = await runAnalysis();
+
+    expect(output.result.topics).toHaveLength(6);
+    expect(output.degraded).toBe(true);
+    expect(output.qualityIssues).toContain(
+      "Returned 6 topics, but this 4-paper analysis requires at least 18 granular topics.",
+    );
+    expect(createCompletion).toHaveBeenCalledTimes(2);
   });
 
   it("returns a degraded four-paper result instead of failing after an incomplete repair", async () => {

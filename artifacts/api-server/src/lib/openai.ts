@@ -1814,6 +1814,13 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
         ...repairIssues,
       ];
       if (repairIssues.length > 0) {
+        const minimumTopicCount = getMinimumTopicCount(params.yearLabels.length);
+        const catastrophicFloor = Math.ceil(minimumTopicCount * 0.3);
+        if (parsed.topics.length < catastrophicFloor) {
+          throw new Error(
+            `Analysis quality too low to return: only ${parsed.topics.length} topics remained after repair, below the minimum acceptable floor of ${catastrophicFloor} (30% of the ${minimumTopicCount}-topic target for this ${params.yearLabels.length}-paper analysis). Issues: ${qualityIssues.slice(0, 3).join(" ")}`,
+          );
+        }
         degraded = true;
         logger.warn(
           { issues: qualityIssues, topicCount: parsed.topics.length },

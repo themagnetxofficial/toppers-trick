@@ -631,6 +631,65 @@ describe("background analysis diagnostics", () => {
     expect(fs.existsSync(paper)).toBe(false);
   });
 
+  it("fails and refunds when catastrophic repair quality is rejected", async () => {
+    const { db } = await import("@workspace/db");
+    const { analyzeWithAI } = await import("../lib/openai");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const paper = path.join(uploadsDir, "catastrophic-quality-analysis.pdf");
+    fs.writeFileSync(paper, "%PDF-1.4 test");
+    dbState.analysis = {
+      id: 104,
+      userId: 1,
+      status: "processing",
+      creditsCharged: 2,
+    };
+    vi.mocked(db.update).mockClear();
+    vi.mocked(db.execute).mockClear();
+    vi.mocked(extractTextFromFilesWithLabels).mockResolvedValueOnce({
+      text: "--- Year: Paper 1 ---\nQuestion 1: Describe Newton's laws (10 marks)",
+      yearLabels: ["Paper 1"],
+      papers: [
+        {
+          label: "Paper 1",
+          text: "Question 1: Describe Newton's laws of motion in detail (10 marks).",
+        },
+      ],
+      extractedCharacterCount: 59,
+    });
+    vi.mocked(analyzeWithAI).mockRejectedValueOnce(
+      new Error(
+        "Analysis quality too low to return: only 5 topics remained after repair, below the minimum acceptable floor of 6",
+      ),
+    );
+
+    await processAnalysis(104, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [paper],
+      userId: 1,
+    });
+
+    const updatePayloads = vi.mocked(db.update).mock.results.map((result) => {
+      const chain = result.value as { set: ReturnType<typeof vi.fn> };
+      return chain.set.mock.calls[0]?.[0];
+    });
+    expect(updatePayloads).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "pending"),
+      }),
+    );
+    expect(updatePayloads.at(-1)).toEqual({
+      errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "confirmed"),
+    });
+    expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(2);
+
+    dbState.analysis = null;
+    fs.rmSync(paper, { force: true });
+  });
+
   it("records an accurate message when the automatic refund cannot complete", async () => {
     const { db } = await import("@workspace/db");
     vi.mocked(db.update).mockClear();
