@@ -8,12 +8,15 @@ import {
 import { requireAuth } from "../lib/auth";
 import {
   getAvailableCredits,
-  deductOneCredit,
-  deductOneCreditWith,
-  refundOneCredit,
+  deductCreditsWith,
+  refundCredits,
 } from "../lib/credits";
 import { analyzeWithAI } from "../lib/openai";
-import { extractTextFromFilesWithLabels } from "../lib/extractText";
+import {
+  extractTextFromFilesWithLabels,
+  getCreditsForPageCount,
+  getTotalPageCount,
+} from "../lib/extractText";
 import { generateStudyGuidePdf, getPdfOutputDir, getUploadsDir } from "../lib/pdfService";
 import {
   CreateAnalysisBody,
@@ -42,6 +45,13 @@ import {
 import { inspectStorageDirectory, inspectStoredFile } from "../lib/fileStorage";
 
 const router: IRouter = Router();
+
+class InsufficientAnalysisCreditsError extends Error {
+  constructor(readonly requiredCredits: number) {
+    super("Insufficient credits for this analysis");
+    this.name = "InsufficientAnalysisCreditsError";
+  }
+}
 
 function isPaperInputTooLargeError(error: unknown): boolean {
   return error instanceof Error && error.name === "PaperInputTooLargeError";
@@ -299,11 +309,18 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
+  const totalPages = await getTotalPageCount(filePaths);
+  const requiredCredits = getCreditsForPageCount(totalPages);
+
   try {
     const analysis = await db.transaction(async (tx) => {
       // Deduction and analysis creation must commit or roll back together.
-      const deducted = await deductOneCreditWith(tx, req.userId!);
-      if (!deducted) return null;
+      const deducted = await deductCreditsWith(tx, req.userId!, requiredCredits);
+      if (!deducted) {
+        // Throw so a partial multi-credit deduction is rolled back by the
+        // surrounding transaction rather than committing before the 402.
+        throw new InsufficientAnalysisCreditsError(requiredCredits);
+      }
 
       const [createdAnalysis] = await tx
         .insert(analysesTable)
@@ -313,6 +330,7 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
           classOrCourse: classOrCourse ?? null,
           boardOrUniversity: boardOrUniversity ?? null,
           subject,
+          creditsCharged: requiredCredits,
           status: "processing",
           processingStage: "text_extraction",
           processingCurrent: 0,
@@ -326,7 +344,9 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
 
     if (!analysis) {
       cleanupUnclaimedUploads(filePaths);
-      res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
+      res.status(402).json({
+        error: `Insufficient credits. This analysis requires ${requiredCredits} credit(s). Please purchase a pack.`,
+      });
       return;
     }
 
@@ -364,6 +384,13 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
   } catch (err) {
     logger.error({ err }, "Could not start analysis");
     cleanupUnclaimedUploads(filePaths);
+
+    if (err instanceof InsufficientAnalysisCreditsError) {
+      res.status(402).json({
+        error: `Insufficient credits. This analysis requires ${err.requiredCredits} credit(s). Please purchase a pack.`,
+      });
+      return;
+    }
 
     if (isDatabaseUnavailable(err)) {
       res.status(503).json({ error: DATABASE_UNAVAILABLE_MESSAGE });
@@ -609,7 +636,28 @@ export async function processAnalysis(
     // Do not tell the student a refund succeeded until this operation commits.
     if (!creditRefunded) {
       try {
-        await refundOneCredit(params.userId);
+        let creditsChargedForThisAnalysis = 1;
+        try {
+          const chargedRows = await db
+            .select({ creditsCharged: analysesTable.creditsCharged })
+            .from(analysesTable)
+            .where(eq(analysesTable.id, analysisId))
+            .limit(1);
+          const storedCharge = chargedRows[0]?.creditsCharged;
+          if (
+            typeof storedCharge === "number" &&
+            Number.isInteger(storedCharge) &&
+            storedCharge > 0
+          ) {
+            creditsChargedForThisAnalysis = storedCharge;
+          }
+        } catch (chargeLookupErr) {
+          logger.warn(
+            { err: chargeLookupErr, analysisId },
+            "Could not read analysis credit charge; defaulting refund to one credit",
+          );
+        }
+        await refundCredits(params.userId, creditsChargedForThisAnalysis);
         creditRefunded = true;
       } catch (refundErr) {
         logger.error(
@@ -777,56 +825,66 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
     }
   }
 
+  const requiredCredits =
+    typeof analysis.creditsCharged === "number" &&
+    Number.isInteger(analysis.creditsCharged) &&
+    analysis.creditsCharged > 0
+      ? analysis.creditsCharged
+      : 1;
+
   // Lightweight pre-check: surface a clear 402 before touching any data
   const available = await getAvailableCredits(req.userId!);
-  if (available <= 0) {
-    res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
+  if (available < requiredCredits) {
+    res.status(402).json({
+      error: `Insufficient credits. This analysis requires ${requiredCredits} credit(s). Please purchase a pack.`,
+    });
     return;
   }
 
-  // ─── Step 1: atomically claim the retry slot ──────────────────────────────
-  // WHERE status = 'failed' ensures only one concurrent request can win.
-  const claimed = await db
-    .update(analysesTable)
-    .set({
-      status: "processing",
-      processingStage: "text_extraction",
-      processingCurrent: 0,
-      processingTotal: null,
-      errorMessage: null,
-    })
-    .where(
-      and(
-        eq(analysesTable.id, id),
-        eq(analysesTable.userId, req.userId!),
-        eq(analysesTable.status, "failed")
-      )
-    )
-    .returning();
+  // Claiming the retry slot and charging its full recorded amount must commit
+  // or roll back together. This prevents a partial charge or a stuck claim.
+  let updatedAnalysis;
+  try {
+    updatedAnalysis = await db.transaction(async (tx) => {
+      const claimed = await tx
+        .update(analysesTable)
+        .set({
+          status: "processing",
+          processingStage: "text_extraction",
+          processingCurrent: 0,
+          processingTotal: null,
+          errorMessage: null,
+        })
+        .where(
+          and(
+            eq(analysesTable.id, id),
+            eq(analysesTable.userId, req.userId!),
+            eq(analysesTable.status, "failed"),
+          ),
+        )
+        .returning();
 
-  if (!claimed.length) {
+      if (!claimed.length) return null;
+
+      const deducted = await deductCreditsWith(tx, req.userId!, requiredCredits);
+      if (!deducted) {
+        throw new InsufficientAnalysisCreditsError(requiredCredits);
+      }
+
+      return claimed[0];
+    });
+  } catch (err) {
+    if (err instanceof InsufficientAnalysisCreditsError) {
+      res.status(402).json({
+        error: `Insufficient credits. This analysis requires ${requiredCredits} credit(s). Please purchase a pack.`,
+      });
+      return;
+    }
+    throw err;
+  }
+
+  if (!updatedAnalysis) {
     res.status(409).json({ error: "Analysis is already being retried." });
-    return;
-  }
-
-  const [updatedAnalysis] = claimed;
-
-  // ─── Step 2: atomically deduct 1 credit from oldest non-expired batch ─────
-  const deducted = await deductOneCredit(req.userId!);
-
-  if (!deducted) {
-    // Edge case: credits expired/drained between the pre-check and this write.
-    await db
-      .update(analysesTable)
-      .set({
-        status: "failed",
-        processingStage: null,
-        processingCurrent: null,
-        processingTotal: null,
-        errorMessage: "Insufficient credits.",
-      })
-      .where(eq(analysesTable.id, id));
-    res.status(402).json({ error: "Insufficient credits. Please purchase a pack." });
     return;
   }
 

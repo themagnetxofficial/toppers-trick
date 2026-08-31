@@ -49,6 +49,45 @@ async function extractTextViaPdfParse(filePath: string): Promise<string> {
 }
 
 /**
+ * Count uploaded pages from cheap PDF metadata only. This helper is kept
+ * separate from extraction so pricing never renders pages or invokes OCR.
+ */
+export async function getTotalPageCount(filePaths: string[]): Promise<number> {
+  let total = 0;
+
+  for (const filePath of filePaths) {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== ".pdf") {
+      total += 1;
+      continue;
+    }
+
+    let parser: PDFParse | null = null;
+    try {
+      parser = new PDFParse({ data: fs.readFileSync(filePath) });
+      const info = await parser.getInfo();
+      total += info.total;
+    } catch (err) {
+      logger.warn(
+        { err, filePath },
+        "Could not read PDF page count; counting as 1 page",
+      );
+      total += 1;
+    } finally {
+      await parser?.destroy().catch(() => undefined);
+    }
+  }
+
+  return total;
+}
+
+export function getCreditsForPageCount(totalPages: number): number {
+  if (totalPages > 40) return 3;
+  if (totalPages >= 20) return 2;
+  return 1;
+}
+
+/**
  * Render image-only PDF pages with pdf-parse's in-process renderer, then have
  * OpenAI vision transcribe them in stable page order. This intentionally does
  * not launch Poppler or a local OCR worker, which are unavailable under the

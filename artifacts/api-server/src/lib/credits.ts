@@ -131,6 +131,25 @@ export async function deductOneCreditWith(
 }
 
 /**
+ * Atomically deduct a requested number of credits through the supplied
+ * transaction executor. A null result means the caller must roll back its
+ * transaction because earlier loop iterations may already have succeeded.
+ */
+export async function deductCreditsWith(
+  executor: CreditMutationExecutor,
+  userId: number,
+  amount: number,
+): Promise<{ batchIds: number[] } | null> {
+  const batchIds: number[] = [];
+  for (let i = 0; i < amount; i += 1) {
+    const result = await deductOneCreditWith(executor, userId);
+    if (!result) return null;
+    batchIds.push(result.batchId);
+  }
+  return { batchIds };
+}
+
+/**
  * Refund 1 credit back into the oldest non-full non-expired batch.
  * If no valid batch exists (all expired), creates a 1-credit free batch
  * so refunds are never silently lost.
@@ -163,5 +182,11 @@ export async function refundOneCredit(userId: number): Promise<void> {
       isPaid: false,
       expiresAt: null,
     });
+  }
+}
+
+export async function refundCredits(userId: number, amount: number): Promise<void> {
+  for (let i = 0; i < amount; i += 1) {
+    await refundOneCredit(userId);
   }
 }

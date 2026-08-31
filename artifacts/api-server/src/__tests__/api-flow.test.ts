@@ -237,6 +237,12 @@ vi.mock("../lib/pdfService", () => ({
 
 // Stub text extraction
 vi.mock("../lib/extractText", () => ({
+  getCreditsForPageCount: vi.fn((totalPages: number) => {
+    if (totalPages > 40) return 3;
+    if (totalPages >= 20) return 2;
+    return 1;
+  }),
+  getTotalPageCount: vi.fn().mockResolvedValue(1),
   extractTextFromFiles: vi
     .fn()
     .mockResolvedValue("Question 1: Describe Newton's laws (10 marks)"),
@@ -375,6 +381,34 @@ describe("POST /api/analyses", () => {
 
     dbState.credits = original;
     expect(res.status).toBe(402);
+  });
+
+  it("charges two credits and rolls back when the second deduction is unavailable", async () => {
+    const fakePath = path.join(uploadsDir, "two-credit-analysis.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+    const { db } = await import("@workspace/db");
+    const { getTotalPageCount } = await import("../lib/extractText");
+
+    vi.mocked(db.transaction).mockClear();
+    vi.mocked(db.execute).mockClear();
+    vi.mocked(getTotalPageCount).mockResolvedValueOnce(20);
+    vi.mocked(db.execute)
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] } as any)
+      .mockResolvedValueOnce({ rows: [] } as any);
+
+    const res = await request(app)
+      .post("/api/analyses")
+      .send({
+        category: "school",
+        subject: "Physics",
+        filePaths: [fakePath],
+      });
+
+    expect(res.status).toBe(402);
+    expect(res.body.error).toContain("requires 2 credit(s)");
+    expect(vi.mocked(db.transaction)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(2);
+    expect(fs.existsSync(fakePath)).toBe(false);
   });
 
   it("creates an analysis and responds 201 with status=processing", async () => {
@@ -621,6 +655,36 @@ describe("background analysis diagnostics", () => {
       errorMessage: getAnalysisFailureMessageWithRefund("file_missing", "unconfirmed"),
     });
   });
+
+  it.each([2, 3])(
+    "refunds the stored %i-credit charge after a failed analysis",
+    async (creditsCharged) => {
+      const { db } = await import("@workspace/db");
+      const missingPath = path.join(
+        uploadsDir,
+        `missing-${creditsCharged}-credit-analysis.pdf`,
+      );
+      dbState.analysis = {
+        id: 103 + creditsCharged,
+        userId: 1,
+        status: "processing",
+        creditsCharged,
+      };
+      vi.mocked(db.execute).mockClear();
+
+      await processAnalysis(103 + creditsCharged, {
+        category: "school",
+        classOrCourse: "12th",
+        boardOrUniversity: "CBSE",
+        subject: "Physics",
+        filePaths: [missingPath],
+        userId: 1,
+      });
+
+      expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(creditsCharged);
+      dbState.analysis = null;
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1053,8 +1117,9 @@ describe("POST /api/analyses/:id/retry", () => {
 
     const res = await request(app).post("/api/analyses/42/retry");
     expect(res.status).toBe(402);
-    // Status transition + status revert — credit deduction is now via db.execute, not db.update
-    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(2);
+    // The claim and multi-credit deduction share a transaction, so the real
+    // database rolls the claim back when the deduction fails midway.
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(1);
   });
 });
 

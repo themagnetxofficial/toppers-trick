@@ -31,6 +31,8 @@ vi.mock("../lib/openai", () => ({ transcribeImagesWithVision }));
 import {
   extractTextFromFile,
   extractTextFromFilesWithLabels,
+  getCreditsForPageCount,
+  getTotalPageCount,
 } from "../lib/extractText";
 
 const temporaryFiles: string[] = [];
@@ -55,6 +57,39 @@ beforeEach(() => {
 });
 
 describe("vision extraction fallback", () => {
+  it.each([
+    [19, 1],
+    [20, 2],
+    [40, 2],
+    [41, 3],
+  ])("charges %i pages at %i credit tier", (pages, credits) => {
+    expect(getCreditsForPageCount(pages)).toBe(credits);
+  });
+
+  it("sums PDF metadata pages and counts images without rendering", async () => {
+    const firstPdf = makeTemporaryFile(".pdf");
+    const secondPdf = makeTemporaryFile(".pdf");
+    const image = makeTemporaryFile(".png");
+    getInfo
+      .mockResolvedValueOnce({ total: 19 })
+      .mockResolvedValueOnce({ total: 2 });
+
+    await expect(getTotalPageCount([firstPdf, secondPdf, image])).resolves.toBe(22);
+    expect(getInfo).toHaveBeenCalledTimes(2);
+    expect(getScreenshot).not.toHaveBeenCalled();
+    expect(transcribeImagesWithVision).not.toHaveBeenCalled();
+    expect(destroy).toHaveBeenCalledTimes(2);
+  });
+
+  it("counts an unreadable PDF as one page", async () => {
+    const filePath = makeTemporaryFile(".pdf");
+    getInfo.mockRejectedValueOnce(new Error("invalid PDF"));
+
+    await expect(getTotalPageCount([filePath])).resolves.toBe(1);
+    expect(getScreenshot).not.toHaveBeenCalled();
+    expect(transcribeImagesWithVision).not.toHaveBeenCalled();
+  });
+
   it("keeps selectable-text PDFs on pdf-parse and bypasses vision", async () => {
     const filePath = makeTemporaryFile(".pdf");
     const embeddedText = "Question 1: ".repeat(12);

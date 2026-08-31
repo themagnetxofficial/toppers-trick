@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS "analyses" (
   "processing_current" INTEGER,
   "processing_total"   INTEGER,
   "error_message"      TEXT,
+  "credits_charged"    INTEGER NOT NULL DEFAULT 1,
   "degraded"           BOOLEAN NOT NULL DEFAULT FALSE,
   "quality_issues"     JSONB NOT NULL DEFAULT '[]'::jsonb,
   "ai_response_json"   JSONB,

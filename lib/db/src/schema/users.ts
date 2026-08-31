@@ -34,6 +34,7 @@ export const analysesTable = pgTable("analyses", {
   processingCurrent: integer("processing_current"),
   processingTotal: integer("processing_total"),
   errorMessage: text("error_message"),
+  creditsCharged: integer("credits_charged").notNull().default(1),
   degraded: boolean("degraded").notNull().default(false),
   qualityIssues: jsonb("quality_issues").$type<string[]>().notNull().default([]),
   aiResponseJson: jsonb("ai_response_json"),
