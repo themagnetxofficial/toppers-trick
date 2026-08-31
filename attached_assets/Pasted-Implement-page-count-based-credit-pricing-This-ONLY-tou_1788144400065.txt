@@ -1,0 +1,104 @@
+Implement page-count-based credit pricing. This ONLY touches billing logic — do NOT modify extractText.ts's extraction functions, openai.ts's AI-analysis or vision-transcription logic, or any prompt content. Page counting must use cheap PDF metadata only (no rendering, no OCR, no vision calls).
+
+STEP 1 — Database schema
+Add a new column to the analyses table: `creditsCharged` (integer, not null, default 1). Generate and apply the migration.
+
+STEP 2 — Page-count helper
+In artifacts/api-server/src/lib/extractText.ts, add and export a new function:
+
+  export async function getTotalPageCount(filePaths: string[]): Promise<number> {
+    let total = 0;
+    for (const filePath of filePaths) {
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext === ".pdf") {
+        let parser: PDFParse | null = null;
+        try {
+          parser = new PDFParse({ data: fs.readFileSync(filePath) });
+          const info = await parser.getInfo();
+          total += info.total;
+        } catch (err) {
+          logger.warn({ err, filePath }, "Could not read PDF page count; counting as 1 page");
+          total += 1;
+        } finally {
+          await parser?.destroy().catch(() => undefined);
+        }
+      } else {
+        total += 1; // single images count as one page
+      }
+    }
+    return total;
+  }
+
+This must only call parser.getInfo() (metadata read), never getScreenshot() or any transcription function — it must not trigger vision/OCR calls.
+
+STEP 3 — Tier function
+Add and export, in the same file or a suitable shared lib file:
+
+  export function getCreditsForPageCount(totalPages: number): number {
+    if (totalPages > 40) return 3;
+    if (totalPages >= 20) return 2;
+    return 1;
+  }
+
+(20-40 inclusive of 20 = 2 credits, >40 = 3 credits, below 20 = 1 credit, matching: <20→1, 20-40→2, 40+→3.)
+
+STEP 4 — Generalize credit deduction/refund
+In artifacts/api-server/src/lib/credits.ts, add:
+
+  export async function deductCreditsWith(
+    executor: CreditMutationExecutor,
+    userId: number,
+    amount: number,
+  ): Promise<{ batchIds: number[] } | null> {
+    const batchIds: number[] = [];
+    for (let i = 0; i < amount; i += 1) {
+      const result = await deductOneCreditWith(executor, userId);
+      if (!result) return null; // insufficient — caller's transaction should roll back
+      batchIds.push(result.batchId);
+    }
+    return { batchIds };
+  }
+
+  export async function refundCredits(userId: number, amount: number): Promise<void> {
+    for (let i = 0; i < amount; i += 1) {
+      await refundOneCredit(userId);
+    }
+  }
+
+Do not change the existing deductOneCredit, deductOneCreditWith, or refundOneCredit functions — keep them as-is for backward compatibility.
+
+STEP 5 — Update the analysis-creation route
+In artifacts/api-server/src/routes/analyses.ts, find the creation flow around the `db.transaction` block that currently calls `deductOneCreditWith(tx, req.userId!)`. Before this transaction starts (filePaths are already available at this point), compute:
+
+  const totalPages = await getTotalPageCount(filePaths);
+  const requiredCredits = getCreditsForPageCount(totalPages);
+
+Inside the transaction, replace the single-credit deduction with:
+
+  const deducted = await deductCreditsWith(tx, req.userId!, requiredCredits);
+  if (!deducted) return null;
+
+Add `creditsCharged: requiredCredits` to the `.values({...})` object when inserting the new analysis row.
+
+Update the 402 response for insufficient credits to include how many were required, e.g.:
+  res.status(402).json({ error: `Insufficient credits. This analysis requires ${requiredCredits} credit(s). Please purchase a pack.` });
+
+STEP 6 — Update the refund path
+Find the failure-handling block (around the `refundOneCredit(params.userId)` call, inside the catch block that handles analysis failures). Before calling refund, fetch the `creditsCharged` value for this specific analysisId from the analyses table (a simple select if not already in scope), then replace:
+
+  await refundOneCredit(params.userId);
+
+with:
+
+  await refundCredits(params.userId, creditsChargedForThisAnalysis);
+
+Make sure creditsChargedForThisAnalysis defaults to 1 if the row can't be read for any reason, so a lookup failure never blocks a refund entirely.
+
+STEP 7 — Tests
+Run the full test suite. Fix any existing test assertions that hardcode "1 credit deducted" or "1 credit refunded" for scenarios where the test's file setup would now imply a different page count — update expected values to match the new tiered amounts rather than changing the tiering logic to fit old tests. Add new test coverage for:
+- getCreditsForPageCount boundary values (19, 20, 40, 41 pages)
+- getTotalPageCount summing across multiple files
+- A multi-credit deduction that fails midway (insufficient credits) correctly returns null and does not partially deduct (verify via transaction rollback)
+- A failed analysis with creditsCharged = 2 or 3 refunds the correct amount, not 1
+
+Report full test results without silently working around failures.
