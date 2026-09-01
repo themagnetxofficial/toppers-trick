@@ -191,6 +191,31 @@ describe("hard-capped compact repair flow", () => {
     );
   });
 
+  it("never returns an unrepaired topic with fewer than four study bullets", async () => {
+    const initial = makeResult(18);
+    initial.topics[17]!.study_note.kya_padhna_hai =
+      "- Named definition\n- Named comparison\n- Applied scenario";
+
+    createCompletion
+      .mockResolvedValueOnce(completion(initial, 100))
+      .mockResolvedValueOnce(completion({ topics: [] }, 50));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(output.result.topics).toHaveLength(17);
+    expect(output.result.topics.map((topic) => topic.topic_name)).not.toContain(
+      "Specific Topic 18",
+    );
+    expect(
+      output.result.topics.every((topic) => {
+        const bulletCount =
+          topic.study_note.kya_padhna_hai.match(/^\s*-\s+/gm)?.length ?? 0;
+        return bulletCount >= 4 && bulletCount <= 6;
+      }),
+    ).toBe(true);
+  });
+
   it("uses the single compact repair when every initial topic is structurally incomplete", async () => {
     const initial = makeResult(3);
     for (const topic of initial.topics) {

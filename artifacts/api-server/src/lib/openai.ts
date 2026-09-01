@@ -664,6 +664,12 @@ function getConcreteStudyNoteIssues(result: AiAnalysisResult): string[] {
   });
 }
 
+function getKyaPadhnaHaiBulletCount(note: unknown): number {
+  return typeof note === "string"
+    ? (note.match(/^\s*-\s+/gm) ?? []).length
+    : 0;
+}
+
 function getMinimumTopicCount(paperCount: number): number {
   return paperCount >= 4 ? 18 : Math.max(8, paperCount * 4);
 }
@@ -698,8 +704,7 @@ export function getTopicQualityIssues(
 
   const invalidStudyNotes = result.topics.flatMap((topic) => {
     const note = topic.study_note?.kya_padhna_hai;
-    const bulletCount =
-      typeof note === "string" ? (note.match(/^\s*-\s+/gm) ?? []).length : 0;
+    const bulletCount = getKyaPadhnaHaiBulletCount(note);
     return bulletCount >= 4 && bulletCount <= 6
       ? []
       : [`"${topic.topic_name}" has ${bulletCount} kya_padhna_hai bullets (needs 4-6).`];
@@ -865,9 +870,10 @@ function hasVerifiedPaperQuestionEvidence(
 
 function hasNonEmptyStudyNotes(topic: TopicResult): boolean {
   const note = topic.study_note;
+  const bulletCount = getKyaPadhnaHaiBulletCount(note?.kya_padhna_hai);
   return (
-    typeof note?.kya_padhna_hai === "string" &&
-    note.kya_padhna_hai.trim().length > 0 &&
+    bulletCount >= 4 &&
+    bulletCount <= 6 &&
     typeof note?.kaise_poochha_jaata_hai === "string" &&
     note.kaise_poochha_jaata_hai.trim().length > 0 &&
     typeof note?.repeat_pattern === "string" &&
