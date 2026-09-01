@@ -656,11 +656,10 @@ describe("background analysis diagnostics", () => {
       ],
       extractedCharacterCount: 59,
     });
-    vi.mocked(analyzeWithAI).mockRejectedValueOnce(
-      new Error(
-        "Analysis quality too low to return: only 5 topics remained after repair, below the minimum acceptable floor of 6",
-      ),
+    const qualityError = new Error(
+      "Analysis quality too low to return: only 5 topics remained after repair, below the minimum acceptable floor of 6",
     );
+    vi.mocked(analyzeWithAI).mockRejectedValueOnce(qualityError);
 
     await processAnalysis(104, {
       category: "school",
@@ -678,11 +677,11 @@ describe("background analysis diagnostics", () => {
     expect(updatePayloads).toContainEqual(
       expect.objectContaining({
         status: "failed",
-        errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "pending"),
+        errorMessage: getTemporaryOcrDiagnosticMessage(qualityError, "pending"),
       }),
     );
     expect(updatePayloads.at(-1)).toEqual({
-      errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "confirmed"),
+      errorMessage: getTemporaryOcrDiagnosticMessage(qualityError, "confirmed"),
     });
     expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(2);
 
