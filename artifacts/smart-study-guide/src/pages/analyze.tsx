@@ -13,6 +13,7 @@ import { UploadCloud, File, X, ChevronRight, ArrowLeft, Loader2, Sparkles } from
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AnalysisProcessingStatus } from "@/components/analysis-processing-status";
+import { estimateTotalPages, getEstimatedCredits } from "@/lib/analysis-estimate";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API_BASE_URL = `${basePath}/api`;
@@ -56,6 +57,8 @@ export default function AnalyzePage() {
   const [files, setFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [estimatedPages, setEstimatedPages] = useState<number | null>(null);
+  const [isEstimating, setIsEstimating] = useState(false);
   
   // Step 3 State
   const [analysisId, setAnalysisId] = useState<number | null>(null);
@@ -74,6 +77,38 @@ export default function AnalyzePage() {
       refetchOnMount: "always",
     } 
   });
+
+  useEffect(() => {
+    if (files.length === 0) {
+      setEstimatedPages(null);
+      setIsEstimating(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsEstimating(true);
+
+    estimateTotalPages(files)
+      .then((pages) => {
+        if (!cancelled) {
+          setEstimatedPages(pages);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEstimatedPages(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsEstimating(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files]);
 
   // Check completion
   useEffect(() => {
@@ -394,7 +429,12 @@ export default function AnalyzePage() {
 
             <div className="pt-4 flex justify-between items-center border-t border-border">
               <span className="text-sm text-muted-foreground">
-                Costs <strong className="text-foreground">1 credit</strong>
+                Costs{" "}
+                <strong className="text-foreground" data-testid="text-analysis-cost">
+                  {isEstimating
+                    ? "…"
+                    : `${estimatedPages !== null ? getEstimatedCredits(estimatedPages) : 1} credit${estimatedPages !== null && getEstimatedCredits(estimatedPages) > 1 ? "s" : ""}`}
+                </strong>
               </span>
               <Button 
                 onClick={handleUploadAndAnalyze} 
@@ -420,7 +460,10 @@ export default function AnalyzePage() {
       )}
 
       {step === 3 && (
-        <AnalysisProcessingStatus analysis={analysisData} />
+        <AnalysisProcessingStatus
+          analysis={analysisData}
+          estimatedPages={estimatedPages ?? undefined}
+        />
       )}
     </div>
   );

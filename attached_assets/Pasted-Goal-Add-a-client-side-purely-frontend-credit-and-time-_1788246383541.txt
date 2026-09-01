@@ -1,0 +1,103 @@
+Goal: Add a client-side, purely-frontend credit and time estimate. This must NOT touch any backend route, the analysis pipeline, extractText.ts, openai.ts, or credits.ts. All computation happens in the browser before/during upload; the backend remains the sole source of truth for actual charges.
+
+STEP 1 — Add a PDF page-counting library
+In artifacts/smart-study-guide/package.json, add "pdfjs-dist" as a dependency (latest stable version compatible with the existing React/Vite setup). Install it.
+
+STEP 2 — Create a shared estimate helper
+Create a new file: artifacts/smart-study-guide/src/lib/analysis-estimate.ts
+
+export async function estimateTotalPages(files: File[]): Promise<number> {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+
+  let total = 0;
+  for (const file of files) {
+    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        total += pdf.numPages;
+      } catch {
+        total += 1; // fallback if a file can't be parsed client-side
+      }
+    } else {
+      total += 1; // images count as one page, matching backend logic
+    }
+  }
+  return total;
+}
+
+export function getEstimatedCredits(totalPages: number): number {
+  if (totalPages > 40) return 3;
+  if (totalPages >= 20) return 2;
+  return 1;
+}
+
+export function getEstimatedTimeLabel(totalPages: number): string {
+  if (totalPages > 40) return "10-11 min";
+  if (totalPages >= 20) return "7-9 min";
+  return "5-6 min";
+}
+
+Note: getEstimatedCredits mirrors the backend's getCreditsForPageCount thresholds exactly (in artifacts/api-server/src/lib/extractText.ts) — keep them numerically identical if that backend function ever changes.
+
+STEP 3 — Wire the credit estimate into the upload page
+In artifacts/smart-study-guide/src/pages/analyze.tsx:
+- Import { estimateTotalPages, getEstimatedCredits } from "@/lib/analysis-estimate".
+- Add state: const [estimatedPages, setEstimatedPages] = useState<number | null>(null); and const [isEstimating, setIsEstimating] = useState(false);
+- Add a useEffect that runs whenever the `files` state array changes: if files.length === 0, reset estimatedPages to null; otherwise set isEstimating(true), call estimateTotalPages(files), set estimatedPages with the result, then isEstimating(false). Guard against race conditions if the user changes files again while a previous estimate is still running (e.g. track a request id or use a cancelled flag).
+- Find this line:
+    Costs <strong className="text-foreground">1 credit</strong>
+  Replace the hardcoded "1" with a dynamic value:
+    Costs <strong className="text-foreground">
+      {isEstimating
+        ? "…"
+        : `${estimatedPages !== null ? getEstimatedCredits(estimatedPages) : 1} credit${estimatedPages !== null && getEstimatedCredits(estimatedPages) > 1 ? "s" : ""}`}
+    </strong>
+  This must never block form submission — if estimation fails or is still pending when the user submits, submission proceeds normally; the backend's own charge is authoritative regardless of what this estimate showed.
+
+STEP 4 — Pass the estimate down to the processing screen
+Still in analyze.tsx, find:
+    <AnalysisProcessingStatus analysis={analysisData} />
+Change to:
+    <AnalysisProcessingStatus analysis={analysisData} estimatedPages={estimatedPages ?? undefined} />
+
+STEP 5 — Update AnalysisProcessingStatus to show a time estimate and rotating encouragement lines
+In artifacts/smart-study-guide/src/components/analysis-processing-status.tsx:
+
+- Import { getEstimatedTimeLabel } from "@/lib/analysis-estimate" and { useState, useEffect } from "react".
+- Update the component's props type to accept an optional `estimatedPages?: number`.
+- Compute a time label: if estimatedPages is provided, use getEstimatedTimeLabel(estimatedPages); otherwise fall back to a generic string with no specific range, e.g. "Analysis mein thoda samay lag sakta hai".
+- Display this time estimate as a small line near the top of the card content, e.g. right below the h2 heading — something like:
+    <p className="text-sm text-muted-foreground mb-1">
+      {estimatedPages !== undefined
+        ? `Analysis mein approx ${getEstimatedTimeLabel(estimatedPages)} lag sakte hain. Kripya page band na karein.`
+        : "Analysis mein thoda samay lag sakta hai. Kripya page band na karein."}
+    </p>
+- Add a rotating encouragement line below the existing progressText paragraph. Define this array at module scope (outside the component):
+
+    const ENCOURAGEMENT_LINES = [
+      "Chai bana lo, tab tak paper padh liya jayega",
+      "Apna favorite gaana laga lo, analysis chalti rahegi",
+      "Doston ko bata do 'bas 5 minute mein aata hoon'",
+      "Jitni der analysis chalegi, utni der tum reel chala sakte ho",
+      "Itni der mein utna hi padh lete jitna last night socha tha padhoge",
+      "Relax, itna time toh tumne bhi last-minute revision ko diya hoga",
+    ];
+
+  Inside the component, add state for the current index and a useEffect that cycles it every 4500ms using setInterval, with proper cleanup (clearInterval) on unmount. Only run this rotation while analysis?.status === "processing" (or "pending") — stop/hide it once the analysis completes or errors, since this component may continue rendering during transitions.
+
+  Render the current line in a small, subtle, italicized or muted style beneath the main progress text, e.g.:
+    <p className="text-xs text-muted-foreground/70 italic mt-3">
+      {ENCOURAGEMENT_LINES[currentLineIndex]}
+    </p>
+
+Do not change any other logic in this component — the existing stage icons, progress bar, and page-progress display during text_extraction must remain exactly as they are.
+
+STEP 6 — Tests and verification
+Run the existing frontend test suite (if any exists for these files) and the full workspace typecheck. Since pdfjs-dist is a new dependency, confirm the production build (`pnpm run build` for smart-study-guide) completes successfully and the bundle size increase is reasonable (pdfjs-dist can be large — if it meaningfully bloats the bundle, use a dynamic import as shown above so it's only loaded when files are selected, not on initial page load).
+
+Report full results. Do not touch any file under artifacts/api-server/src — this is a frontend-only change.

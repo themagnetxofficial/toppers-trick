@@ -477,6 +477,9 @@ importers:
       dompurify:
         specifier: ^3.4.13
         version: 3.4.13
+      pdfjs-dist:
+        specifier: 5.4.296
+        version: 5.4.296
       react-helmet-async:
         specifier: ^3.0.0
         version: 3.0.0(react@19.1.0)

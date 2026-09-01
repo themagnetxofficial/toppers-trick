@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import type { Analysis, AnalysisSummary } from "@workspace/api-client-react";
 import { BrainCircuit, Check, FileOutput, FileSearch, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { getEstimatedTimeLabel } from "@/lib/analysis-estimate";
 
 type ProcessingAnalysis = Pick<
   Analysis,
@@ -18,6 +20,15 @@ const PROCESSING_STAGES = [
   { key: "ai_analysis", label: "Find patterns", icon: BrainCircuit },
   { key: "pdf_generation", label: "Create PDF", icon: FileOutput },
 ] as const;
+
+const ENCOURAGEMENT_LINES = [
+  "Chai bana lo, tab tak paper padh liya jayega",
+  "Apna favorite gaana laga lo, analysis chalti rahegi",
+  "Doston ko bata do 'bas 5 minute mein aata hoon'",
+  "Jitni der analysis chalegi, utni der tum reel chala sakte ho",
+  "Itni der mein utna hi padh lete jitna last night socha tha padhoge",
+  "Relax, itna time toh tumne bhi last-minute revision ko diya hoga",
+];
 
 function getStageIndex(stage: string | null | undefined): number {
   const index = PROCESSING_STAGES.findIndex((item) => item.key === stage);
@@ -65,11 +76,16 @@ export function getAnalysisProcessingSummary(
 
 export function AnalysisProcessingStatus({
   analysis,
+  estimatedPages,
 }: {
   analysis?: ProcessingAnalysis;
+  estimatedPages?: number;
 }) {
+  const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const stageIndex = getStageIndex(analysis?.processingStage);
   const progressText = getProgressText(analysis);
+  const isProcessing =
+    analysis?.status === "processing" || analysis?.status === "pending";
   const hasPageProgress =
     analysis?.processingStage === "text_extraction" &&
     typeof analysis.processingCurrent === "number" &&
@@ -104,7 +120,20 @@ export function AnalysisProcessingStatus({
                 ? "Finishing your study guide…"
                 : "Your study guide is in progress…"}
         </h2>
+        <p className="text-sm text-muted-foreground mb-1" data-testid="text-estimated-analysis-time">
+          {estimatedPages !== undefined
+            ? `Analysis mein approx ${getEstimatedTimeLabel(estimatedPages)} lag sakte hain. Kripya page band na karein.`
+            : "Analysis mein thoda samay lag sakta hai. Kripya page band na karein."}
+        </p>
         <p className="text-muted-foreground max-w-lg">{progressText}</p>
+        {isProcessing && (
+          <p
+            className="text-xs text-muted-foreground/70 italic mt-3"
+            data-testid="text-analysis-encouragement"
+          >
+            {ENCOURAGEMENT_LINES[currentLineIndex]}
+          </p>
+        )}
 
         {hasPageProgress && (
           <div className="w-full max-w-md mt-6" aria-label={progressText}>
