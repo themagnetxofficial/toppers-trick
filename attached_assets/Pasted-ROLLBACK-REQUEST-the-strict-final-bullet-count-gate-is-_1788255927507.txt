@@ -1,0 +1,14 @@
+ROLLBACK REQUEST — the strict final bullet-count gate is too aggressive and causing repeated "zero topics survived" failures across multiple different subjects/papers (confirmed via diagnostic capture on analysis id 113: "did not include any topics with verified paper evidence and study notes").
+
+Revert the FINAL (post-repair) validation gate back to the ORIGINAL non-empty-content check only (matching the lenient check now used for the early/pre-repair validation) — i.e., make both the early and final validateAiAnalysisResult calls use the SAME lenient standard (non-empty study_note.kya_padhna_hai text, not the strict 4-6-bullet-count requirement).
+
+Keep everything else exactly as-is:
+- getTopicQualityIssues should STILL report "0 kya_padhna_hai bullets (needs 4-6)" as a quality issue/warning (this stays, it's useful signal) — but this must NOT be a hard gate that removes topics from the final result.
+- The catastrophic-quality-floor safeguard (30% of minimum topic count) stays unchanged.
+- The sequencing fix (lenient-early validation before repair) stays unchanged — this rollback only affects the FINAL/post-repair gate, reverting it back to lenient too.
+
+Rationale: repair-patch topics reliably contain real, evidence-backed, non-empty study content, but are not always formatted in the exact 4-6-bullet structure the original generation prompt enforces. Hard-blocking on bullet format was intended to catch genuinely-empty content, but the non-empty-string check already achieves that; the bullet-count requirement was an over-tightening that now causes valid, useful topics to be wholesale rejected, sometimes emptying the entire result and triggering a full analysis failure instead of a normal degraded-but-usable result.
+
+After this rollback, run the full test suite and update/remove the regression test that specifically required strict 4-6-bullet enforcement at the final gate, replacing it with a test confirming: a topic with non-empty (but not necessarily 4-6-bullet) study notes DOES survive into the final result, while a topic with a genuinely empty/missing kya_padhna_hai field is still excluded.
+
+Report clearly that this is an intentional rollback of the earlier bullet-strictness final-gate change, and confirm no other logic (catastrophic floor, sequencing fix, credits, prompt, model selection) was touched.

@@ -1821,7 +1821,7 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
       if (normalizedEnvelope.usedFallbackStrategy) {
         parsed.overall_strategy_tip = buildFallbackStrategy(parsed.topics);
       }
-      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, true);
+      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, false);
       repairIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
       qualityIssues = [
         ...normalizedEnvelope.recoveryIssues,
@@ -1853,7 +1853,7 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
       );
     }
     try {
-      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, true);
+      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, false);
     } catch (validationError) {
       if (
         validationError instanceof Error &&

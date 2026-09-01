@@ -191,10 +191,11 @@ describe("hard-capped compact repair flow", () => {
     );
   });
 
-  it("lets weak initial notes reach repair, then excludes them from the final result", async () => {
-    const initial = makeResult(18);
+  it("keeps non-empty weak notes after repair but excludes genuinely empty notes", async () => {
+    const initial = makeResult(19);
     initial.topics[17]!.study_note.kya_padhna_hai =
       "- Named definition\n- Named comparison\n- Applied scenario";
+    initial.topics[18]!.study_note.kya_padhna_hai = "";
 
     createCompletion
       .mockResolvedValueOnce(completion(initial, 100))
@@ -207,17 +208,16 @@ describe("hard-capped compact repair flow", () => {
     expect(repairRequest.messages[1].content).toContain(
       '"Specific Topic 18" has 3 kya_padhna_hai bullets (needs 4-6).',
     );
-    expect(output.result.topics).toHaveLength(17);
-    expect(output.result.topics.map((topic) => topic.topic_name)).not.toContain(
+    expect(output.result.topics).toHaveLength(18);
+    expect(output.result.topics.map((topic) => topic.topic_name)).toContain(
       "Specific Topic 18",
     );
-    expect(
-      output.result.topics.every((topic) => {
-        const bulletCount =
-          topic.study_note.kya_padhna_hai.match(/^\s*-\s+/gm)?.length ?? 0;
-        return bulletCount >= 4 && bulletCount <= 6;
-      }),
-    ).toBe(true);
+    expect(output.result.topics.map((topic) => topic.topic_name)).not.toContain(
+      "Specific Topic 19",
+    );
+    expect(output.qualityIssues).toContain(
+      '"Specific Topic 18" has 3 kya_padhna_hai bullets (needs 4-6).',
+    );
   });
 
   it("uses the single compact repair when every initial topic is structurally incomplete", async () => {
@@ -619,14 +619,13 @@ describe("hard-capped compact repair flow", () => {
     });
 
     expect(output.degraded).toBe(true);
-    expect(output.result.topics).toHaveLength(7);
-    expect(
-      output.result.topics.every((topic) => {
-        const bulletCount =
-          topic.study_note.kya_padhna_hai.match(/^\s*-\s+/gm)?.length ?? 0;
-        return bulletCount >= 4 && bulletCount <= 6;
-      }),
-    ).toBe(true);
+    expect(output.result.topics).toHaveLength(8);
+    expect(output.result.topics.map((topic) => topic.topic_name)).toContain(
+      "Specific Topic 8",
+    );
+    expect(output.qualityIssues).toContain(
+      '"Specific Topic 8" has 3 kya_padhna_hai bullets (needs 4-6).',
+    );
     expect(output.qualityIssues.length).toBeGreaterThan(0);
     expect(createCompletion).toHaveBeenCalledTimes(2);
   });
