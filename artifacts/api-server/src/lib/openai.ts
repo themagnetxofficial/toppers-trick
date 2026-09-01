@@ -868,12 +868,20 @@ function hasVerifiedPaperQuestionEvidence(
   });
 }
 
-function hasNonEmptyStudyNotes(topic: TopicResult): boolean {
+function hasNonEmptyStudyNotes(
+  topic: TopicResult,
+  requireCompleteStudyNotes: boolean,
+): boolean {
   const note = topic.study_note;
   const bulletCount = getKyaPadhnaHaiBulletCount(note?.kya_padhna_hai);
+  const hasNonEmptyStudyContent =
+    typeof note?.kya_padhna_hai === "string" &&
+    note.kya_padhna_hai.trim().length > 0;
+  const hasCompleteBulletCount =
+    !requireCompleteStudyNotes || (bulletCount >= 4 && bulletCount <= 6);
   return (
-    bulletCount >= 4 &&
-    bulletCount <= 6 &&
+    hasNonEmptyStudyContent &&
+    hasCompleteBulletCount &&
     typeof note?.kaise_poochha_jaata_hai === "string" &&
     note.kaise_poochha_jaata_hai.trim().length > 0 &&
     typeof note?.repeat_pattern === "string" &&
@@ -1251,6 +1259,7 @@ export function validateAiAnalysisResult(
   result: AiAnalysisResult,
   fallbackYears: string[],
   sourcePapers?: Array<{ label: string; text: string }>,
+  requireCompleteStudyNotes = true,
 ): void {
   if (
     !result.subject?.trim() ||
@@ -1314,7 +1323,7 @@ export function validateAiAnalysisResult(
       fallbackYears,
       sourcePapers,
     );
-    const hasNotes = hasNonEmptyStudyNotes(topic);
+    const hasNotes = hasNonEmptyStudyNotes(topic, requireCompleteStudyNotes);
     return hasEvidence && hasNotes;
   });
   if (topicsBeforeEvidenceFilter !== result.topics.length) {
@@ -1736,7 +1745,7 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
     initialTopicSchema.incomplete === initialTopicSchema.total;
   let initialSchemaRecoveryIssue: string | undefined;
   try {
-    validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
+    validateAiAnalysisResult(parsed, params.yearLabels, params.papers, false);
   } catch (err) {
     if (
       !canRecoverWithoutAcceptedTopics ||
@@ -1812,7 +1821,7 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
       if (normalizedEnvelope.usedFallbackStrategy) {
         parsed.overall_strategy_tip = buildFallbackStrategy(parsed.topics);
       }
-      validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
+      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, true);
       repairIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
       qualityIssues = [
         ...normalizedEnvelope.recoveryIssues,
@@ -1842,6 +1851,21 @@ Do not include unchanged topics, related pairs, or any extra keys. For a five-pa
       throw new Error(
         "The initial AI response had no schema-valid topics and the bounded repair did not complete.",
       );
+    }
+    try {
+      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, true);
+    } catch (validationError) {
+      if (
+        validationError instanceof Error &&
+        validationError.message.includes(
+          "no topics with verified paper evidence and study notes",
+        )
+      ) {
+        throw new Error(
+          "The initial AI response had no final usable topics and the bounded repair did not complete.",
+        );
+      }
+      throw validationError;
     }
     degraded = true;
     qualityIssues = [

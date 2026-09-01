@@ -191,7 +191,7 @@ describe("hard-capped compact repair flow", () => {
     );
   });
 
-  it("never returns an unrepaired topic with fewer than four study bullets", async () => {
+  it("lets weak initial notes reach repair, then excludes them from the final result", async () => {
     const initial = makeResult(18);
     initial.topics[17]!.study_note.kya_padhna_hai =
       "- Named definition\n- Named comparison\n- Applied scenario";
@@ -203,6 +203,10 @@ describe("hard-capped compact repair flow", () => {
     const output = await runAnalysis();
 
     expect(createCompletion).toHaveBeenCalledTimes(2);
+    const repairRequest = createCompletion.mock.calls[1]![0];
+    expect(repairRequest.messages[1].content).toContain(
+      '"Specific Topic 18" has 3 kya_padhna_hai bullets (needs 4-6).',
+    );
     expect(output.result.topics).toHaveLength(17);
     expect(output.result.topics.map((topic) => topic.topic_name)).not.toContain(
       "Specific Topic 18",
@@ -592,6 +596,8 @@ describe("hard-capped compact repair flow", () => {
 
   it("returns the schema-valid baseline and stops repairs when the shared deadline expires", async () => {
     const initial = makeResult(8);
+    initial.topics[7]!.study_note.kya_padhna_hai =
+      "- Named definition\n- Named comparison\n- Applied scenario";
     createCompletion
       .mockResolvedValueOnce(completion(initial, 100))
       .mockImplementationOnce(
@@ -613,7 +619,14 @@ describe("hard-capped compact repair flow", () => {
     });
 
     expect(output.degraded).toBe(true);
-    expect(output.result.topics).toHaveLength(8);
+    expect(output.result.topics).toHaveLength(7);
+    expect(
+      output.result.topics.every((topic) => {
+        const bulletCount =
+          topic.study_note.kya_padhna_hai.match(/^\s*-\s+/gm)?.length ?? 0;
+        return bulletCount >= 4 && bulletCount <= 6;
+      }),
+    ).toBe(true);
     expect(output.qualityIssues.length).toBeGreaterThan(0);
     expect(createCompletion).toHaveBeenCalledTimes(2);
   });
