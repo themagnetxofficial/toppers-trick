@@ -37,7 +37,7 @@ expertMode = true
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 120000
 
 [userenv]
 
@@ -46,3 +46,15 @@ ADMIN_CLERK_USER_ID = "user_3HDuH4eVIX1SEs6hYw4bqyix9xX"
 
 [nix]
 channel = "stable-25_05"
+
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 23180
+externalPort = 3000

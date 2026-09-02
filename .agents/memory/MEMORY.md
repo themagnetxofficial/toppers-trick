@@ -7,4 +7,8 @@
 - [Vision transcription for scanned papers](portable-scanned-pdf-ocr.md) — scans use sequential OpenAI vision after in-process PDF rendering; no Poppler or Tesseract.
 - [Build worker limits](replit-build-worker-limits.md) — stale pnpm bootstrap workers can exhaust local process slots and make Vite/esbuild appear broken.
 - [Multi-paper AI coverage](multi-paper-ai-coverage.md) — never truncate a combined paper corpus; preserve a labeled, bounded input block for every upload.
+- [Analysis quality fallback](analysis-topic-quality-fallback.md) — after the two-call cap, return a valid imperfect result as degraded instead of failing and refunding.
+- [AI repair schema validation](ai-repair-schema-validation.md) — validate compact repair topics before merging or persisting them
 - [GitHub publishing recovery](github-publishing-recovery.md) — if the workspace Git HTTPS credential expires, use the connected GitHub API with a guarded branch update.
+- [Post-merge setup](post-merge-setup.md) — invoke the pinned pnpm explicitly and keep interactive/destructive schema pushes out of unattended hooks.
+- [Supabase schema operations](supabase-schema-ops.md) — the external database can lag Drizzle schema; prefer scoped additive updates when push detects unrelated interactive changes.

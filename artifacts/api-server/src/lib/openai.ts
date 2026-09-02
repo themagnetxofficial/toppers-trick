@@ -96,6 +96,22 @@ export interface VisionTranscriptionImage {
   label: string;
 }
 
+export type VisionImageCompleteReporter = (
+  image: VisionTranscriptionImage,
+) => void | Promise<void>;
+
+export interface VisionTranscriptionOptions {
+  deadlineAt?: number;
+  onCallComplete?: ProviderCallReporter;
+  onImageComplete?: VisionImageCompleteReporter;
+  /**
+   * Scanned PDFs use small batches to reduce request overhead while retaining
+   * a strict page-level delimiter contract. Existing callers remain one image
+   * per request unless they opt into batching.
+   */
+  batchSize?: number;
+}
+
 async function withVisionTranscriptionSlot<T>(operation: () => Promise<T>): Promise<T> {
   await new Promise<void>((resolve) => {
     const start = () => {
@@ -120,10 +136,7 @@ async function withVisionTranscriptionSlot<T>(operation: () => Promise<T>): Prom
 
 async function transcribeImageWithVision(
   image: VisionTranscriptionImage,
-  options: {
-    deadlineAt?: number;
-    onCallComplete?: ProviderCallReporter;
-  },
+  options: VisionTranscriptionOptions,
 ): Promise<string> {
   return withVisionTranscriptionSlot(async () => {
     let lastError: unknown;
@@ -246,6 +259,193 @@ async function transcribeImageWithVision(
   });
 }
 
+function parseVisionPageBatch(
+  content: string,
+  expectedPageCount: number,
+): string[] {
+  const pageTexts: Array<string | undefined> = [];
+  const pagePattern =
+    /<<<OCR_PAGE_(\d+)>>>\s*([\s\S]*?)\s*<<<END_OCR_PAGE_\1>>>/g;
+  let match: RegExpExecArray | null;
+  while ((match = pagePattern.exec(content)) !== null) {
+    const pageNumber = Number(match[1]);
+    if (
+      !Number.isInteger(pageNumber) ||
+      pageNumber < 1 ||
+      pageNumber > expectedPageCount ||
+      pageTexts[pageNumber - 1] !== undefined
+    ) {
+      throw new Error("OpenAI vision returned invalid page delimiters for an OCR batch.");
+    }
+    pageTexts[pageNumber - 1] = match[2]?.trim() ?? "";
+  }
+
+  if (
+    pageTexts.length !== expectedPageCount ||
+    pageTexts.some((text) => !text)
+  ) {
+    throw new Error(
+      `OpenAI vision returned an incomplete OCR batch (${pageTexts.filter(Boolean).length}/${expectedPageCount} pages).`,
+    );
+  }
+
+  return pageTexts as string[];
+}
+
+async function transcribeImageBatchWithVision(
+  images: VisionTranscriptionImage[],
+  options: VisionTranscriptionOptions,
+): Promise<string[]> {
+  return withVisionTranscriptionSlot(async () => {
+    let lastError: unknown;
+    for (const model of [VISION_TRANSCRIPTION_MODEL, VISION_TRANSCRIPTION_FALLBACK_MODEL]) {
+      for (
+        let attempt = 0;
+        attempt <= VISION_TRANSCRIPTION_RETRY_COUNT;
+        attempt += 1
+      ) {
+        const startedAt = performance.now();
+        try {
+          const { signal, cleanup } = createDeadlineSignal(options.deadlineAt);
+          let response;
+          try {
+            const pageInstructions = images
+              .map(
+                (_, index) =>
+                  `<<<OCR_PAGE_${index + 1}>>>\n<<<END_OCR_PAGE_${index + 1}>>>`,
+              )
+              .join("\n");
+            const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
+              model,
+              max_completion_tokens: 12000,
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text:
+                        `Transcribe all ${images.length} exam-paper pages below, keeping each page separate. ` +
+                        "This may be a CBSE or Indian exam paper printed bilingually in Hindi and English. " +
+                        "Return both languages exactly as visible; do not translate, summarize, shorten, or skip repeated-looking text. " +
+                        "A Hindi block and its English translation are usually one logical question, but both blocks must still be transcribed. " +
+                        "Keep question numbers, options, marks, headings, case-study passages, sub-questions, tables, and line breaks where readable. " +
+                        "Scan every supplied page from top to bottom, including continuation text. " +
+                        "Return exactly one block for each page using these delimiters and no commentary:\n" +
+                        pageInstructions,
+                    },
+                    ...images.map((image) => ({
+                      type: "image_url" as const,
+                      image_url: {
+                        url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+                        detail: "high" as const,
+                      },
+                    })),
+                  ],
+                },
+              ],
+            };
+            response = signal
+              ? await getOpenAI().chat.completions.create(request, { signal })
+              : await getOpenAI().chat.completions.create(request);
+          } finally {
+            cleanup();
+          }
+
+          const inputTokens = response.usage?.prompt_tokens ?? 0;
+          const outputTokens = response.usage?.completion_tokens ?? 0;
+          const durationMs = Math.round(performance.now() - startedAt);
+          const choice = response.choices[0];
+          if (choice?.finish_reason === "length") {
+            throw new Error(
+              `OpenAI vision transcription batch was cut off after ${images.length} pages.`,
+            );
+          }
+          const content = choice?.message?.content?.trim();
+          if (!content) {
+            throw new Error(
+              `OpenAI vision returned no transcription for an OCR batch (model=${model}, finish_reason=${choice?.finish_reason ?? "unknown"}).`,
+            );
+          }
+          const pageTexts = parseVisionPageBatch(content, images.length);
+          await options.onCallComplete?.({
+            operation: "vision_transcription",
+            model,
+            status: "completed",
+            inputTokens,
+            outputTokens,
+            totalTokens: response.usage?.total_tokens ?? inputTokens + outputTokens,
+            durationMs,
+            finishReason: choice?.finish_reason ?? null,
+            metadata: {
+              images: images.map((image) => image.label),
+              batchSize: images.length,
+              attempt: attempt + 1,
+            },
+          });
+          logger.info(
+            {
+              operation: "vision_transcription",
+              model,
+              images: images.map((image) => image.label),
+              inputTokens,
+              outputTokens,
+              totalTokens: response.usage?.total_tokens ?? inputTokens + outputTokens,
+              durationMs,
+              batchSize: images.length,
+            },
+            "OpenAI vision OCR batch completed",
+          );
+          return pageTexts;
+        } catch (err) {
+          lastError = normalizeDeadlineError(err);
+          const details = getErrorDetails(lastError);
+          await options.onCallComplete?.({
+            operation: "vision_transcription",
+            model,
+            status: "failed",
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            durationMs: Math.round(performance.now() - startedAt),
+            errorName: details.errorName,
+            errorMessage: details.errorMessage,
+            metadata: {
+              images: images.map((image) => image.label),
+              batchSize: images.length,
+              attempt: attempt + 1,
+            },
+          });
+          if (lastError instanceof AnalysisDeadlineExceededError) throw lastError;
+        }
+
+        logger.warn(
+          { err: lastError, images: images.map((image) => image.label), model, attempt: attempt + 1 },
+          attempt === VISION_TRANSCRIPTION_RETRY_COUNT
+            ? "OpenAI vision OCR batch failed; trying the next OCR option"
+            : "OpenAI vision OCR batch failed; retrying",
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("OpenAI vision did not return a response for the OCR batch.");
+  });
+}
+
+function splitVisionImages(
+  images: VisionTranscriptionImage[],
+  batchSize: number,
+): VisionTranscriptionImage[][] {
+  const safeBatchSize = Math.max(1, Math.floor(batchSize));
+  const batches: VisionTranscriptionImage[][] = [];
+  for (let index = 0; index < images.length; index += safeBatchSize) {
+    batches.push(images.slice(index, index + safeBatchSize));
+  }
+  return batches;
+}
+
 /**
  * Transcribe scanned paper images with the lowest-cost model that supports
  * vision input. A shared three-request limit protects the upstream rate limit
@@ -254,14 +454,36 @@ async function transcribeImageWithVision(
  */
 export async function transcribeImagesWithVision(
   images: VisionTranscriptionImage[],
-  options: {
-    deadlineAt?: number;
-    onCallComplete?: ProviderCallReporter;
-  } = {},
+  options: VisionTranscriptionOptions = {},
 ): Promise<string> {
-  const texts = await Promise.all(
-    images.map((image) => transcribeImageWithVision(image, options)),
+  const batches = splitVisionImages(images, options.batchSize ?? 1);
+  const batchTexts = await Promise.all(
+    batches.map(async (batch) => {
+      let texts: string[];
+      if (batch.length === 1) {
+        texts = [await transcribeImageWithVision(batch[0]!, options)];
+      } else {
+        try {
+          texts = await transcribeImageBatchWithVision(batch, options);
+        } catch (err) {
+          if (err instanceof AnalysisDeadlineExceededError) throw err;
+          logger.warn(
+            { err, images: batch.map((image) => image.label) },
+            "Falling back to individual OCR requests after an invalid batch",
+          );
+          texts = await Promise.all(
+            batch.map((image) => transcribeImageWithVision(image, options)),
+          );
+        }
+      }
+
+      for (const image of batch) {
+        await options.onImageComplete?.(image);
+      }
+      return texts;
+    }),
   );
+  const texts = batchTexts.flat();
   return texts
     .map(
       (text, index) =>
@@ -328,14 +550,134 @@ export interface PaperSummary {
 const VAGUE_TOPIC_TITLE_PATTERN =
   /(?:definition|explanation|summary|overview|importance|skills|techniques|challenges)\s*$/i;
 
+const BIOLOGY_UMBRELLA_TOPIC_NAMES = new Set([
+  "biology",
+  "life science",
+  "cell biology",
+  "genetics",
+  "genetic inheritance",
+  "evolution",
+  "ecology",
+  "biodiversity",
+  "reproduction",
+  "human reproduction",
+  "sexual reproduction",
+  "human physiology",
+  "plant physiology",
+  "biotechnology",
+  "human health",
+  "human health and disease",
+  "life processes",
+  "molecular biology",
+  "environmental issues",
+]);
+
+const GENERIC_STUDY_BULLET_PATTERN =
+  /^(?:examples?|importance|strateg(?:y|ies)|common challenges?|real[- ]world use cases?|definition|explanation|summary|overview|etc\.?)$/i;
+
+function isBiologySubject(subject: string): boolean {
+  return /\b(?:bio(?:logy|logical)?|botany|zoology|life science)\b/i.test(subject);
+}
+
 function getVagueTopicNames(result: AiAnalysisResult): string[] {
+  const biologySubject = isBiologySubject(result.subject);
   return result.topics
     .map((topic) => topic.topic_name.trim())
-    .filter((topicName) => VAGUE_TOPIC_TITLE_PATTERN.test(topicName));
+    .filter((topicName) => {
+      const normalizedName = topicName.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+      return (
+        VAGUE_TOPIC_TITLE_PATTERN.test(topicName) ||
+        (biologySubject && BIOLOGY_UMBRELLA_TOPIC_NAMES.has(normalizedName))
+      );
+    });
+}
+
+function getPaperSummaryQualityIssues(
+  result: AiAnalysisResult,
+  paperLabels: string[],
+): string[] {
+  if (!Array.isArray(result.paper_summaries)) {
+    return [
+      `paper_summaries must contain exactly one grounded summary for each provided paper (${paperLabels.join(", ")}).`,
+    ];
+  }
+
+  const issues: string[] = [];
+  if (result.paper_summaries.length !== paperLabels.length) {
+    issues.push(
+      `paper_summaries must contain exactly ${paperLabels.length} entries, one for each provided paper.`,
+    );
+  }
+
+  const summariesByPaper = new Map(
+    result.paper_summaries
+      .filter((summary) => typeof summary?.paper === "string")
+      .map((summary) => [summary.paper, summary]),
+  );
+  const missingPapers = paperLabels.filter((label) => !summariesByPaper.has(label));
+  if (missingPapers.length > 0) {
+    issues.push(`Missing grounded paper summaries for: ${missingPapers.join(", ")}.`);
+  }
+
+  const emptySummaries = paperLabels.filter((label) => {
+    const summary = summariesByPaper.get(label);
+    return (
+      !summary ||
+      typeof summary.summary !== "string" ||
+      summary.summary.trim().length < 20 ||
+      !Number.isFinite(summary.question_count) ||
+      summary.question_count <= 0
+    );
+  });
+  if (emptySummaries.length > 0) {
+    issues.push(
+      `Paper summaries must include a useful summary and positive question count for: ${emptySummaries.join(", ")}.`,
+    );
+  }
+
+  const unexpectedPapers = result.paper_summaries
+    .map((summary) => summary.paper)
+    .filter((label) => !paperLabels.includes(label));
+  if (unexpectedPapers.length > 0) {
+    issues.push(`paper_summaries included labels that were not uploaded: ${unexpectedPapers.join(", ")}.`);
+  }
+
+  return issues;
+}
+
+function getConcreteStudyNoteIssues(result: AiAnalysisResult): string[] {
+  return result.topics.flatMap((topic) => {
+    const note = topic.study_note?.kya_padhna_hai;
+    if (typeof note !== "string") return [];
+    const bullets = note
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*-\s*/, "").trim())
+      .filter(Boolean);
+    const genericBullets = bullets.filter((bullet) =>
+      GENERIC_STUDY_BULLET_PATTERN.test(bullet),
+    );
+    return genericBullets.length > 0
+      ? [
+          `"${topic.topic_name}" contains generic study bullets (${genericBullets.join(", ")}); every bullet must name a paper-derived concept or question pattern.`,
+        ]
+      : [];
+  });
+}
+
+function getKyaPadhnaHaiBulletCount(note: unknown): number {
+  return typeof note === "string"
+    ? (note.match(/^\s*-\s+/gm) ?? []).length
+    : 0;
 }
 
 function getMinimumTopicCount(paperCount: number): number {
   return paperCount >= 4 ? 18 : Math.max(8, paperCount * 4);
+}
+
+export function getAnalysisModelForPaperCount(
+  paperCount: number,
+): "gpt-4o-mini" | "gpt-5-mini" {
+  return paperCount >= 4 ? "gpt-5-mini" : "gpt-4o-mini";
 }
 
 export function getTopicQualityIssues(
@@ -362,18 +704,53 @@ export function getTopicQualityIssues(
 
   const invalidStudyNotes = result.topics.flatMap((topic) => {
     const note = topic.study_note?.kya_padhna_hai;
-    const bulletCount =
-      typeof note === "string" ? (note.match(/^\s*-\s+/gm) ?? []).length : 0;
+    const bulletCount = getKyaPadhnaHaiBulletCount(note);
     return bulletCount >= 4 && bulletCount <= 6
       ? []
       : [`"${topic.topic_name}" has ${bulletCount} kya_padhna_hai bullets (needs 4-6).`];
   });
   issues.push(...invalidStudyNotes);
+  issues.push(...getConcreteStudyNoteIssues(result));
+  issues.push(...getUncoveredDistinctiveTopicIssues(result));
 
   if (!/Bas Pass Hona Hai\s*:/i.test(result.overall_strategy_tip ?? "")) {
     issues.push(
       'overall_strategy_tip is missing a clearly labeled "Bas Pass Hona Hai:" recommendation.',
     );
+  }
+
+  if (paperCount >= 5) {
+    issues.push(...getPaperSummaryQualityIssues(result, result.years_analyzed));
+
+    const representedPapers = new Set(
+      result.topics.flatMap((topic) =>
+        Array.isArray(topic.paper_question_evidence)
+          ? topic.paper_question_evidence
+              .map((evidence) => evidence?.paper)
+              .filter((paper): paper is string => typeof paper === "string")
+          : [],
+      ),
+    );
+    const missingEvidencePapers = result.years_analyzed.filter(
+      (paper) => !representedPapers.has(paper),
+    );
+    if (missingEvidencePapers.length > 0) {
+      issues.push(
+        `At least one grounded topic is required for every paper; missing evidence for: ${missingEvidencePapers.join(", ")}.`,
+      );
+    }
+
+    const passStrategy = result.overall_strategy_tip?.match(
+      /Bas Pass Hona Hai\s*:\s*([\s\S]*)/i,
+    )?.[1] ?? "";
+    const namedTopics = result.topics.filter((topic) =>
+      passStrategy.includes(topic.topic_name),
+    );
+    if (result.topics.length > 0 && namedTopics.length === 0) {
+      issues.push(
+        'Bas Pass Hona Hai: must name exact granular topic_name values rather than only giving general advice.',
+      );
+    }
   }
 
   return issues;
@@ -384,6 +761,26 @@ function normalizeTopicName(topicName: string): string {
     .toLocaleLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function getUncoveredDistinctiveTopicIssues(result: AiAnalysisResult): string[] {
+  const topicNames = result.topics.map((t) => normalizeTopicName(t.topic_name));
+  const issues: string[] = [];
+  for (const summary of result.paper_summaries ?? []) {
+    for (const dt of summary.distinctive_topics ?? []) {
+      if (typeof dt !== "string" || !dt.trim()) continue;
+      const normalized = normalizeTopicName(dt);
+      const covered = topicNames.some(
+        (tn) => tn.includes(normalized) || normalized.includes(tn),
+      );
+      if (!covered) {
+        issues.push(
+          `"${dt}" was listed as a distinctive topic in ${summary.paper}'s summary but has no matching entry in topics — add it as a real topic if the paper text supports it.`,
+        );
+      }
+    }
+  }
+  return issues;
 }
 
 /**
@@ -471,15 +868,323 @@ function hasVerifiedPaperQuestionEvidence(
   });
 }
 
-function hasNonEmptyStudyNotes(topic: TopicResult): boolean {
+function hasNonEmptyStudyNotes(
+  topic: TopicResult,
+  requireCompleteStudyNotes: boolean,
+): boolean {
   const note = topic.study_note;
-  return (
+  const bulletCount = getKyaPadhnaHaiBulletCount(note?.kya_padhna_hai);
+  const hasNonEmptyStudyContent =
     typeof note?.kya_padhna_hai === "string" &&
-    note.kya_padhna_hai.trim().length > 0 &&
+    note.kya_padhna_hai.trim().length > 0;
+  const hasCompleteBulletCount =
+    !requireCompleteStudyNotes || (bulletCount >= 4 && bulletCount <= 6);
+  return (
+    hasNonEmptyStudyContent &&
+    hasCompleteBulletCount &&
     typeof note?.kaise_poochha_jaata_hai === "string" &&
     note.kaise_poochha_jaata_hai.trim().length > 0 &&
     typeof note?.repeat_pattern === "string" &&
     note.repeat_pattern.trim().length > 0
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isCompleteQuestionTypeBreakdown(
+  value: unknown,
+): value is QuestionTypeBreakdown {
+  return (
+    isRecord(value) &&
+    typeof value.mcq === "string" &&
+    typeof value.short === "string" &&
+    typeof value.long === "string" &&
+    typeof value.case_study === "string"
+  );
+}
+
+function isCompleteStudyNote(
+  value: unknown,
+): value is TopicResult["study_note"] {
+  return (
+    isRecord(value) &&
+    typeof value.kya_padhna_hai === "string" &&
+    typeof value.kaise_poochha_jaata_hai === "string" &&
+    typeof value.repeat_pattern === "string"
+  );
+}
+
+function isCompleteTopicResult(value: unknown): value is TopicResult {
+  if (
+    !isRecord(value) ||
+    typeof value.topic_name !== "string" ||
+    typeof value.priority !== "string" ||
+    !["High", "Medium", "Low"].includes(value.priority) ||
+    typeof value.frequency !== "number" ||
+    !Number.isFinite(value.frequency) ||
+    !isStringArray(value.years_appeared) ||
+    typeof value.confidence_level !== "string" ||
+    !["High", "Medium", "Low"].includes(value.confidence_level) ||
+    typeof value.marks_weightage !== "string" ||
+    !isCompleteQuestionTypeBreakdown(value.question_type_breakdown) ||
+    !isCompleteStudyNote(value.study_note) ||
+    !isStringArray(value.key_terms)
+  ) {
+    return false;
+  }
+
+  return (
+    value.paper_question_evidence === undefined ||
+    (Array.isArray(value.paper_question_evidence) &&
+      value.paper_question_evidence.every(
+        (item) =>
+          isRecord(item) &&
+          typeof item.paper === "string" &&
+          typeof item.evidence === "string",
+      ))
+  );
+}
+
+function normalizeTopicSchemaMetadata(
+  value: unknown,
+  fallbackYears: string[],
+): unknown {
+  if (!isRecord(value)) return value;
+
+  const evidencePapers = Array.isArray(value.paper_question_evidence)
+    ? value.paper_question_evidence
+        .filter(isRecord)
+        .map((item) => item.paper)
+        .filter(
+          (paper): paper is string =>
+            typeof paper === "string" && fallbackYears.includes(paper),
+        )
+    : [];
+  const yearsAppeared = isStringArray(value.years_appeared)
+    ? value.years_appeared
+    : [...new Set(evidencePapers)];
+  const frequency =
+    typeof value.frequency === "number" && Number.isFinite(value.frequency)
+      ? value.frequency
+      : yearsAppeared.length;
+  const priority =
+    value.priority === "High" ||
+    value.priority === "Medium" ||
+    value.priority === "Low"
+      ? value.priority
+      : frequency >= 3
+        ? "High"
+        : frequency >= 2
+          ? "Medium"
+          : "Low";
+  const confidenceLevel =
+    value.confidence_level === "High" ||
+    value.confidence_level === "Medium" ||
+    value.confidence_level === "Low"
+      ? value.confidence_level
+      : frequency >= 3
+        ? "High"
+        : frequency >= 2
+          ? "Medium"
+          : "Low";
+  const rawBreakdown = isRecord(value.question_type_breakdown)
+    ? value.question_type_breakdown
+    : {};
+  const questionTypeBreakdown: QuestionTypeBreakdown = {
+    mcq: typeof rawBreakdown.mcq === "string" ? rawBreakdown.mcq : "Not specified",
+    short:
+      typeof rawBreakdown.short === "string"
+        ? rawBreakdown.short
+        : "Not specified",
+    long:
+      typeof rawBreakdown.long === "string"
+        ? rawBreakdown.long
+        : "Not specified",
+    case_study:
+      typeof rawBreakdown.case_study === "string"
+        ? rawBreakdown.case_study
+        : "Not specified",
+  };
+  const keyTerms = Array.isArray(value.key_terms)
+    ? value.key_terms.filter((term): term is string => typeof term === "string")
+    : [];
+
+  return {
+    ...value,
+    priority,
+    frequency,
+    years_appeared: yearsAppeared,
+    confidence_level: confidenceLevel,
+    marks_weightage:
+      typeof value.marks_weightage === "string"
+        ? value.marks_weightage
+        : "Not specified",
+    question_type_breakdown: questionTypeBreakdown,
+    key_terms: keyTerms,
+  };
+}
+
+function normalizeTopicListSchemaMetadata(
+  value: unknown,
+  fallbackYears: string[],
+): { topics: TopicResult[]; recoveredCount: number } {
+  if (!Array.isArray(value)) return { topics: [], recoveredCount: 0 };
+
+  let recoveredCount = 0;
+  const topics = value.map((topic) => {
+    const wasComplete = isCompleteTopicResult(topic);
+    const normalized = normalizeTopicSchemaMetadata(topic, fallbackYears);
+    if (!wasComplete && isCompleteTopicResult(normalized)) {
+      recoveredCount += 1;
+    }
+    return normalized;
+  });
+
+  return {
+    topics: topics as TopicResult[],
+    recoveredCount,
+  };
+}
+
+function normalizeRepairPatchSchemaMetadata(
+  value: Record<string, unknown>,
+  fallbackYears: string[],
+): { patch: TopicRepairPatch; recoveredCount: number } {
+  const additions = normalizeTopicListSchemaMetadata(
+    value.topics,
+    fallbackYears,
+  );
+  let recoveredCount = additions.recoveredCount;
+  const replacements = Array.isArray(value.replacements)
+    ? value.replacements.map((replacement) => {
+        if (!isRecord(replacement)) return replacement;
+        const normalized = normalizeTopicListSchemaMetadata(
+          [replacement.topic],
+          fallbackYears,
+        );
+        recoveredCount += normalized.recoveredCount;
+        return {
+          ...replacement,
+          topic: normalized.topics[0],
+        };
+      })
+    : undefined;
+
+  return {
+    patch: {
+      ...value,
+      topics: additions.topics,
+      replacements,
+    } as unknown as TopicRepairPatch,
+    recoveredCount,
+  };
+}
+
+function getSchemaIncompleteTopicCount(value: unknown): {
+  total: number;
+  incomplete: number;
+} {
+  if (!isRecord(value) || !Array.isArray(value.topics)) {
+    return { total: 0, incomplete: 0 };
+  }
+
+  return {
+    total: value.topics.length,
+    incomplete: value.topics.filter((topic) => !isCompleteTopicResult(topic)).length,
+  };
+}
+
+function buildFallbackStrategy(topics: unknown[]): string {
+  const topicNames = topics
+    .filter(isRecord)
+    .map((topic) => topic.topic_name)
+    .filter(
+      (topicName): topicName is string =>
+        typeof topicName === "string" && topicName.trim().length > 0,
+    )
+    .slice(0, 6);
+
+  return topicNames.length > 0
+    ? `Bas Pass Hona Hai: ${topicNames.join(", ")} ko pehle prepare karo, kyunki ye uploaded papers se nikle hue priority topics hain.`
+    : "Bas Pass Hona Hai: uploaded papers se verify hue high-priority topics ko pehle prepare karo.";
+}
+
+function normalizeInitialAnalysisEnvelope(
+  value: unknown,
+  fallbackSubject: string,
+  fallbackYears: string[],
+): {
+  result: AiAnalysisResult;
+  hadTopicsArray: boolean;
+  usedFallbackStrategy: boolean;
+  recoveryIssues: string[];
+} {
+  if (!isRecord(value)) {
+    throw new Error("Invalid AI response schema");
+  }
+
+  const hadTopicsArray = Array.isArray(value.topics);
+  const topics: unknown[] = Array.isArray(value.topics) ? value.topics : [];
+  const recoveryIssues: string[] = [];
+  const subject =
+    typeof value.subject === "string" && value.subject.trim().length > 0
+      ? value.subject
+      : fallbackSubject;
+  if (subject !== value.subject) {
+    recoveryIssues.push(
+      "The AI omitted the subject label, so the submitted subject was restored.",
+    );
+  }
+
+  const usedFallbackStrategy =
+    typeof value.overall_strategy_tip !== "string" ||
+    value.overall_strategy_tip.trim().length === 0;
+  const overallStrategyTip = usedFallbackStrategy
+    ? buildFallbackStrategy(topics)
+    : value.overall_strategy_tip;
+  if (usedFallbackStrategy) {
+    recoveryIssues.push(
+      "The AI omitted the overall strategy, so a safe strategy was rebuilt from its grounded topic names.",
+    );
+  }
+
+  if (!hadTopicsArray) {
+    recoveryIssues.push(
+      "The initial AI response omitted its topic array, so one bounded grounded repair was requested.",
+    );
+  }
+
+  return {
+    result: {
+      ...value,
+      subject,
+      years_analyzed: [...fallbackYears],
+      topics,
+      related_topic_pairs: Array.isArray(value.related_topic_pairs)
+        ? value.related_topic_pairs
+        : [],
+      overall_strategy_tip: overallStrategyTip,
+    } as unknown as AiAnalysisResult,
+    hadTopicsArray,
+    usedFallbackStrategy,
+    recoveryIssues,
+  };
+}
+
+function isCompletePaperSummary(value: unknown): value is PaperSummary {
+  return (
+    isRecord(value) &&
+    typeof value.paper === "string" &&
+    typeof value.summary === "string" &&
+    typeof value.question_count === "number" &&
+    Number.isFinite(value.question_count) &&
+    isStringArray(value.distinctive_topics)
   );
 }
 
@@ -489,6 +1194,7 @@ interface TopicRepairPatch {
     topic: TopicResult;
   }>;
   topics?: TopicResult[];
+  paper_summaries?: PaperSummary[];
   overall_strategy_tip?: string;
 }
 
@@ -538,6 +1244,9 @@ export function applyTopicRepairPatch(
   return {
     ...result,
     topics: mergeAdditionalTopics(repairedTopics, patch.topics ?? []),
+    paper_summaries: Array.isArray(patch.paper_summaries)
+      ? patch.paper_summaries
+      : result.paper_summaries,
     overall_strategy_tip:
       typeof patch.overall_strategy_tip === "string" &&
       patch.overall_strategy_tip.trim().length > 0
@@ -550,15 +1259,27 @@ export function validateAiAnalysisResult(
   result: AiAnalysisResult,
   fallbackYears: string[],
   sourcePapers?: Array<{ label: string; text: string }>,
+  requireCompleteStudyNotes = true,
 ): void {
-  if (!result.subject?.trim() || !Array.isArray(result.topics)) {
+  if (
+    !result.subject?.trim() ||
+    !Array.isArray(result.topics) ||
+    typeof result.overall_strategy_tip !== "string"
+  ) {
     throw new Error("Invalid AI response schema");
   }
 
-  result.topics = result.topics.filter(
-    (topic) =>
-      typeof topic?.topic_name === "string" && topic.topic_name.trim().length > 0,
-  );
+  const topicsBeforeSchemaFilter = result.topics.length;
+  result.topics = result.topics.filter(isCompleteTopicResult);
+  if (topicsBeforeSchemaFilter !== result.topics.length) {
+    logger.warn(
+      {
+        removedTopicCount: topicsBeforeSchemaFilter - result.topics.length,
+        remainingTopicCount: result.topics.length,
+      },
+      "Removed AI topics that did not match the complete topic schema",
+    );
+  }
 
   if (result.topics.length === 0) {
     throw new Error(
@@ -572,6 +1293,16 @@ export function validateAiAnalysisResult(
 
   if (!Array.isArray(result.related_topic_pairs)) {
     result.related_topic_pairs = [];
+  } else {
+    result.related_topic_pairs = result.related_topic_pairs.filter(
+      (pair): pair is string => typeof pair === "string",
+    );
+  }
+
+  if (Array.isArray(result.paper_summaries)) {
+    result.paper_summaries = result.paper_summaries.filter(isCompletePaperSummary);
+  } else {
+    result.paper_summaries = undefined;
   }
 
   const validYears = new Set(fallbackYears);
@@ -592,7 +1323,7 @@ export function validateAiAnalysisResult(
       fallbackYears,
       sourcePapers,
     );
-    const hasNotes = hasNonEmptyStudyNotes(topic);
+    const hasNotes = hasNonEmptyStudyNotes(topic, requireCompleteStudyNotes);
     return hasEvidence && hasNotes;
   });
   if (topicsBeforeEvidenceFilter !== result.topics.length) {
@@ -686,7 +1417,7 @@ export async function analyzeWithAI(params: {
   const systemPrompt = `You are an expert academic exam analyst with years of experience studying question paper patterns for Indian school and college exams. You don't just summarize — you find deep, non-obvious patterns that a professional exam coach would notice: which specific topics are actually tested repeatedly, how question difficulty and format has shifted across years, which topics are frequently paired together in exams, and how confident one can be in a prediction based on the consistency of the pattern.
 
 Rules:
-1. Identify each distinct, specific topic that appears in the papers as its own entry — do NOT group multiple distinct topics under one umbrella category. A typical subject usually has 8-12 distinct topics across the syllabus — make sure you're not under-segmenting into overly broad categories. For example, "HRM" as a whole is too broad — instead identify "HRM vs Personnel Management", "HR Manager Roles", "Manpower Planning", "Training Methods", "Performance Appraisal", etc. as separate topics.
+1. Identify each distinct, specific topic that appears in the papers as its own entry — do NOT group multiple distinct topics under one umbrella category. Do not cap the topic list based on a typical syllabus size; make sure you're not under-segmenting into overly broad categories. For example, "HRM" as a whole is too broad — instead identify "HRM vs Personnel Management", "HR Manager Roles", "Manpower Planning", "Training Methods", "Performance Appraisal", etc. as separate topics.
 2. Track YEAR-WISE presence — for each topic, show exactly which of the provided papers it appeared in, not just a total count.
 3. Identify QUESTION TYPE patterns — classify questions by format (MCQ, short answer, long answer/essay, case study) and note which format is most common for each topic.
 4. Assign a CONFIDENCE LEVEL (High/Medium/Low) to each prediction, based on how consistent the pattern is — a topic appearing in 4 out of 5 years in a similar format deserves "High confidence," while an inconsistent or only-once appearance deserves "Low confidence." Be honest — do not inflate confidence to seem more impressive.
@@ -713,7 +1444,8 @@ Rules:
 
   const yearsList = params.yearLabels.join(", ");
   const minimumTopicCount = getMinimumTopicCount(params.yearLabels.length);
-  const initialModel = params.analysisModel ?? "gpt-4o-mini";
+  const initialModel =
+    params.analysisModel ?? getAnalysisModelForPaperCount(params.yearLabels.length);
   const initialTokenLimit =
     initialModel === "gpt-5-mini"
       ? { max_completion_tokens: 20000, reasoning_effort: "low" as const }
@@ -723,10 +1455,14 @@ Rules:
     params.extractedText,
     params.yearLabels,
   );
+  const subjectSpecificGuidance = isBiologySubject(params.subject)
+    ? `\nBiology-specific guardrail: split broad chapters such as Genetics, Ecology, Reproduction, Biotechnology, Human Health, and Cell Biology into the independently answerable processes, comparisons, diagrams, disorders, experiments, inheritance problems, or case situations that are visibly asked. Do not return a single chapter name as a topic.\n`
+    : "";
   const userPrompt = `Category: ${params.category}
 Class/Course: ${params.classOrCourse || "Not specified"}
 Board/University: ${params.boardOrUniversity || "Not specified"}
 Subject: ${params.subject}
+${subjectSpecificGuidance}
 Papers provided (these exact labels must be used): ${yearsList}
 First-pass coverage target: this ${params.yearLabels.length}-paper run must return at least ${minimumTopicCount} granular, distinct topics. For four or more papers, aim for 18-20+ topics before returning JSON.
 
@@ -900,9 +1636,15 @@ Rules for this response:
   ) => {
     const missingTopicCount = Math.max(0, minimumTopicCount - acceptedTopicCount);
     const additionRequirement =
-      missingTopicCount > 0
+      acceptedTopicCount === 0
+        ? "No topics from the initial response were accepted because its topic objects were structurally incomplete. Rebuild grounded, complete topic objects in \"topics\" from the paper text. Do not use \"replacements\" because there are no accepted topics to replace."
+        : missingTopicCount > 0
         ? `The accepted analysis already has ${acceptedTopicCount} valid topics. Return up to ${missingTopicCount} NEW, distinct topic objects in "topics" only when each one is directly supported by the paper text. Returning fewer is correct; never invent or pad topics to reach ${minimumTopicCount}.`
         : "Do not add topics unless they are required to resolve one of the listed quality failures.";
+    const repairModeInstruction =
+      acceptedTopicCount === 0
+        ? "The initial response contains no accepted topics. Rebuild the grounded topic list from the provided paper text using the complete original topic schema."
+        : "Do not regenerate or rewrite accepted topics.";
 
     return runAnalysisRequest("targeted_quality_repair", initialModel, (signal) =>
       getOpenAI().chat.completions.create({
@@ -912,7 +1654,7 @@ Rules for this response:
         {
           role: "system",
           content:
-            "You repair an existing exam-analysis JSON without regenerating accepted content. Return JSON only. Every replacement or addition must include verbatim paper_question_evidence and complete non-empty study_note fields. If the papers do not support enough new topics, return fewer topics rather than padding.",
+            `You repair an existing exam-analysis JSON. ${repairModeInstruction} Return JSON only. Every replacement or addition must include verbatim paper_question_evidence and complete non-empty study_note fields. If the papers do not support enough new topics, return fewer topics rather than padding.`,
         },
         {
           role: "user",
@@ -936,10 +1678,18 @@ Return ONLY this compact repair object:
     }
   ],
   "topics": ["only new complete topic objects required to fill the count shortfall"],
+  "paper_summaries": [
+    {
+      "paper": "Paper 1",
+      "summary": "corrected grounded summary",
+      "question_count": 0,
+      "distinctive_topics": ["specific topic"]
+    }
+  ],
   "overall_strategy_tip": "include only when its required Bas Pass Hona Hai: label is missing"
 }
 
-Do not include unchanged topics, paper summaries, related pairs, or any extra keys. Add only NEW, distinct topics with real quoted question evidence and complete study notes. Do not add filler to meet the topic minimum. Replace only the existing topics named by failed checks, retaining all other accepted topics.`,
+Do not include unchanged topics, related pairs, or any extra keys. For a five-paper summary failure, include the complete corrected paper_summaries array and preserve all valid summaries. Add only NEW, distinct topics with real quoted question evidence and complete study notes. Do not add filler to meet the topic minimum. Replace only the existing topics named by failed checks, retaining all other accepted topics.`,
         },
         { role: "assistant", content: previousJson },
         {
@@ -962,26 +1712,85 @@ Do not include unchanged topics, paper summaries, related pairs, or any extra ke
       `Empty AI response (finish_reason=${choice?.finish_reason ?? "unknown"}, refusal=${choice?.message?.refusal ? "yes" : "no"})`,
     );
   }
-  let parsed: AiAnalysisResult;
+  let parsedValue: unknown;
   try {
-    parsed = JSON.parse(content) as AiAnalysisResult;
+    parsedValue = JSON.parse(content);
   } catch {
     throw new Error("AI response returned invalid JSON");
   }
 
-  validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
-
-  let degraded = false;
-  let qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+  const normalizedEnvelope = normalizeInitialAnalysisEnvelope(
+    parsedValue,
+    params.subject,
+    params.yearLabels,
+  );
+  let parsed = normalizedEnvelope.result;
+  const normalizedInitialTopics = normalizeTopicListSchemaMetadata(
+    parsed.topics,
+    params.yearLabels,
+  );
+  parsed = {
+    ...parsed,
+    topics: normalizedInitialTopics.topics,
+  };
+  if (normalizedInitialTopics.recoveredCount > 0) {
+    normalizedEnvelope.recoveryIssues.push(
+      `Recovered missing non-grounding metadata for ${normalizedInitialTopics.recoveredCount} initial topic entries while preserving strict evidence and study-note validation.`,
+    );
+  }
+  const initialTopicSchema = getSchemaIncompleteTopicCount(parsed);
+  const canRecoverWithoutAcceptedTopics =
+    !normalizedEnvelope.hadTopicsArray ||
+    initialTopicSchema.total === 0 ||
+    initialTopicSchema.incomplete === initialTopicSchema.total;
+  let initialSchemaRecoveryIssue: string | undefined;
   try {
-    if (qualityIssues.length > 0) {
+    validateAiAnalysisResult(parsed, params.yearLabels, params.papers, false);
+  } catch (err) {
+    if (
+      !canRecoverWithoutAcceptedTopics ||
+      !(err instanceof Error) ||
+      !err.message.includes("did not include any usable topics")
+    ) {
+      throw err;
+    }
+
+    initialSchemaRecoveryIssue =
+      initialTopicSchema.total > 0
+        ? `The initial AI response returned ${initialTopicSchema.total} topic entries, but none matched the complete topic schema. A single grounded repair was requested.`
+        : "The initial AI response did not contain any usable topic entries. A single grounded repair was requested.";
+    parsed = { ...parsed, topics: [] };
+    logger.warn(
+      {
+        analysisId: params.analysisId,
+        initialTopicCount: initialTopicSchema.total,
+        incompleteTopicCount: initialTopicSchema.incomplete,
+        hadTopicsArray: normalizedEnvelope.hadTopicsArray,
+      },
+      "Initial AI response had no usable topics; attempting bounded recovery",
+    );
+  }
+
+  let degraded =
+    normalizedEnvelope.recoveryIssues.length > 0 ||
+    Boolean(initialSchemaRecoveryIssue);
+  const strictFivePaperQuality = params.yearLabels.length >= 4;
+  let repairIssues = initialSchemaRecoveryIssue
+    ? [initialSchemaRecoveryIssue]
+    : getTopicQualityIssues(parsed, params.yearLabels.length);
+  let qualityIssues = [
+    ...normalizedEnvelope.recoveryIssues,
+    ...repairIssues,
+  ];
+  try {
+    if (repairIssues.length > 0) {
       logger.warn(
-        { issues: qualityIssues },
+        { issues: repairIssues },
         "AI analysis failed topic-quality checks; requesting the single compact patch",
       );
       const patchResponse = await makeTargetedRepairRequest(
         content,
-        qualityIssues,
+        repairIssues,
         parsed.topics.length,
       );
       const correctedContent = patchResponse.choices[0]?.message?.content ?? "";
@@ -999,27 +1808,80 @@ Do not include unchanged topics, paper summaries, related pairs, or any extra ke
         throw new Error("AI did not return a usable compact topic patch");
       }
 
-      parsed = applyTopicRepairPatch(parsed, repairPatch as TopicRepairPatch);
-      validateAiAnalysisResult(parsed, params.yearLabels, params.papers);
-      qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
-      if (qualityIssues.length > 0) {
+      const normalizedRepairPatch = normalizeRepairPatchSchemaMetadata(
+        repairPatch as Record<string, unknown>,
+        params.yearLabels,
+      );
+      if (normalizedRepairPatch.recoveredCount > 0) {
+        normalizedEnvelope.recoveryIssues.push(
+          `Recovered missing non-grounding metadata for ${normalizedRepairPatch.recoveredCount} repaired topic entries while preserving strict evidence and study-note validation.`,
+        );
+      }
+      parsed = applyTopicRepairPatch(parsed, normalizedRepairPatch.patch);
+      if (normalizedEnvelope.usedFallbackStrategy) {
+        parsed.overall_strategy_tip = buildFallbackStrategy(parsed.topics);
+      }
+      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, false);
+      repairIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+      qualityIssues = [
+        ...normalizedEnvelope.recoveryIssues,
+        ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
+        ...repairIssues,
+      ];
+      if (repairIssues.length > 0) {
+        const minimumTopicCount = getMinimumTopicCount(params.yearLabels.length);
+        const catastrophicFloor = Math.ceil(minimumTopicCount * 0.3);
+        if (parsed.topics.length < catastrophicFloor) {
+          throw new Error(
+            `Analysis quality too low to return: only ${parsed.topics.length} topics remained after repair, below the minimum acceptable floor of ${catastrophicFloor} (30% of the ${minimumTopicCount}-topic target for this ${params.yearLabels.length}-paper analysis). Issues: ${qualityIssues.slice(0, 3).join(" ")}`,
+          );
+        }
+        degraded = true;
         logger.warn(
           { issues: qualityIssues, topicCount: parsed.topics.length },
-          "Compact topic patch completed; accepting the best parseable result despite remaining quality issues",
+          strictFivePaperQuality
+            ? "Multi-paper compact topic patch still has quality issues; returning a degraded result"
+            : "Compact topic patch completed; accepting the best parseable result with quality warnings",
         );
       }
     }
   } catch (err) {
     if (!(err instanceof AnalysisDeadlineExceededError)) throw err;
+    if (initialSchemaRecoveryIssue && parsed.topics.length === 0) {
+      throw new Error(
+        "The initial AI response had no schema-valid topics and the bounded repair did not complete.",
+      );
+    }
+    try {
+      validateAiAnalysisResult(parsed, params.yearLabels, params.papers, false);
+    } catch (validationError) {
+      if (
+        validationError instanceof Error &&
+        validationError.message.includes(
+          "no topics with verified paper evidence and study notes",
+        )
+      ) {
+        throw new Error(
+          "The initial AI response had no final usable topics and the bounded repair did not complete.",
+        );
+      }
+      throw validationError;
+    }
     degraded = true;
-    qualityIssues = getTopicQualityIssues(parsed, params.yearLabels.length);
+    qualityIssues = [
+      ...normalizedEnvelope.recoveryIssues,
+      ...(initialSchemaRecoveryIssue ? [initialSchemaRecoveryIssue] : []),
+      ...getTopicQualityIssues(parsed, params.yearLabels.length),
+    ];
     logger.warn(
       {
         analysisId: params.analysisId,
         topicCount: parsed.topics.length,
         qualityIssues,
       },
-      "Analysis deadline reached; returning the best schema-valid result",
+      strictFivePaperQuality
+        ? "Multi-paper analysis deadline reached; returning the best schema-valid degraded result"
+        : "Analysis deadline reached; returning the best schema-valid result",
     );
   }
   logger.info(

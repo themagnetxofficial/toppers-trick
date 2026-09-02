@@ -5,12 +5,14 @@
  * Smart Study Guide API
  * OpenAPI spec version: 0.1.0
  */
-import type { ChapterResult } from './chapterResult';
+import type { PaperSummary } from './paperSummary';
+import type { TopicResult } from './topicResult';
 
 export interface AiAnalysisResult {
   subject: string;
-  category: string;
-  years_analyzed: number;
-  chapters: ChapterResult[];
+  years_analyzed: string[];
+  paper_summaries?: PaperSummary[];
+  topics: TopicResult[];
+  related_topic_pairs: string[];
   overall_strategy_tip: string;
 }

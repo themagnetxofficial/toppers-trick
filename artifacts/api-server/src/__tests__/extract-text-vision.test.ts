@@ -28,7 +28,12 @@ vi.mock("pdf-parse", () => ({
 
 vi.mock("../lib/openai", () => ({ transcribeImagesWithVision }));
 
-import { extractTextFromFile } from "../lib/extractText";
+import {
+  extractTextFromFile,
+  extractTextFromFilesWithLabels,
+  getCreditsForPageCount,
+  getTotalPageCount,
+} from "../lib/extractText";
 
 const temporaryFiles: string[] = [];
 
@@ -52,6 +57,39 @@ beforeEach(() => {
 });
 
 describe("vision extraction fallback", () => {
+  it.each([
+    [19, 1],
+    [20, 2],
+    [40, 2],
+    [41, 3],
+  ])("charges %i pages at %i credit tier", (pages, credits) => {
+    expect(getCreditsForPageCount(pages)).toBe(credits);
+  });
+
+  it("sums PDF metadata pages and counts images without rendering", async () => {
+    const firstPdf = makeTemporaryFile(".pdf");
+    const secondPdf = makeTemporaryFile(".pdf");
+    const image = makeTemporaryFile(".png");
+    getInfo
+      .mockResolvedValueOnce({ total: 19 })
+      .mockResolvedValueOnce({ total: 2 });
+
+    await expect(getTotalPageCount([firstPdf, secondPdf, image])).resolves.toBe(22);
+    expect(getInfo).toHaveBeenCalledTimes(2);
+    expect(getScreenshot).not.toHaveBeenCalled();
+    expect(transcribeImagesWithVision).not.toHaveBeenCalled();
+    expect(destroy).toHaveBeenCalledTimes(2);
+  });
+
+  it("counts an unreadable PDF as one page", async () => {
+    const filePath = makeTemporaryFile(".pdf");
+    getInfo.mockRejectedValueOnce(new Error("invalid PDF"));
+
+    await expect(getTotalPageCount([filePath])).resolves.toBe(1);
+    expect(getScreenshot).not.toHaveBeenCalled();
+    expect(transcribeImagesWithVision).not.toHaveBeenCalled();
+  });
+
   it("keeps selectable-text PDFs on pdf-parse and bypasses vision", async () => {
     const filePath = makeTemporaryFile(".pdf");
     const embeddedText = "Question 1: ".repeat(12);
@@ -111,7 +149,63 @@ describe("vision extraction fallback", () => {
         expect.objectContaining({ mimeType: "image/png", label: expect.stringContaining("page 2") }),
         expect.objectContaining({ mimeType: "image/png", label: expect.stringContaining("page 3") }),
       ]),
+       expect.objectContaining({ batchSize: 2 }),
     );
+  });
+
+  it("extracts files concurrently while preserving paper order and progress metadata", async () => {
+    const firstFile = makeTemporaryFile(".png");
+    const secondFile = makeTemporaryFile(".jpg");
+    const progress: Array<{
+      fileIndex: number;
+      fileName: string;
+      current: number;
+      total: number;
+    }> = [];
+
+    transcribeImagesWithVision.mockImplementation(
+      async (
+        images: Array<{ label: string }>,
+        options?: { onImageComplete?: () => void | Promise<void> },
+      ) => {
+        const label = images[0]!.label;
+        if (label === path.basename(firstFile)) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        await options?.onImageComplete?.();
+        return `Transcribed ${label}`;
+      },
+    );
+
+    const result = await extractTextFromFilesWithLabels(
+      [firstFile, secondFile],
+      {
+        onProgress: async ({ fileIndex, fileName, current, total }) => {
+          progress.push({ fileIndex, fileName, current, total });
+        },
+      },
+    );
+
+    expect(result.papers).toEqual([
+      { label: "Paper 1", text: `Transcribed ${path.basename(firstFile)}` },
+      { label: "Paper 2", text: `Transcribed ${path.basename(secondFile)}` },
+    ]);
+    expect(progress.slice(0, 2)).toEqual([
+      { fileIndex: 0, fileName: path.basename(firstFile), current: 0, total: 0 },
+      { fileIndex: 1, fileName: path.basename(secondFile), current: 0, total: 0 },
+    ]);
+    expect(progress).toContainEqual({
+      fileIndex: 0,
+      fileName: path.basename(firstFile),
+      current: 1,
+      total: 1,
+    });
+    expect(progress).toContainEqual({
+      fileIndex: 1,
+      fileName: path.basename(secondFile),
+      current: 1,
+      total: 1,
+    });
   });
 
   it.each([".jpg", ".png"] as const)(

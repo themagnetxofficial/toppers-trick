@@ -11,4 +11,5 @@ export interface PaymentOrder {
   amount: number;
   currency: string;
   key: string;
+  credits: number;
 }

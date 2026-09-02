@@ -1,0 +1,49 @@
+File: artifacts/api-server/src/lib/openai.ts
+
+Make these 4 precise changes. Do NOT rewrite unrelated code, do NOT add new AI calls, do NOT change the existing max-2-AI-calls hard-cap pipeline. These are targeted fixes only.
+
+FIX 1 — Lower the model-upgrade threshold from 5 papers to 4 papers:
+Find `getAnalysisModelForPaperCount` (around line 671-675). Change:
+  return paperCount >= 5 ? "gpt-5-mini" : "gpt-4o-mini";
+to:
+  return paperCount >= 4 ? "gpt-5-mini" : "gpt-4o-mini";
+
+FIX 2 — Lower the strict-quality-gate threshold from 5 papers to 4 papers:
+Find `const strictFivePaperQuality = params.yearLabels.length >= 5;` (inside analyzeWithAI, around line 1359). Change the >= 5 to >= 4.
+Do not rename the variable or touch any other logic around it — just this one threshold number.
+
+FIX 3 — Add a new deterministic quality check that catches topics the model itself flagged in paper_summaries but never created a matching topic entry for.
+
+Add this new function near `normalizeTopicName` (it must be defined before `getTopicQualityIssues` uses it, or hoisted appropriately since it's a function declaration):
+
+function getUncoveredDistinctiveTopicIssues(result: AiAnalysisResult): string[] {
+  const topicNames = result.topics.map((t) => normalizeTopicName(t.topic_name));
+  const issues: string[] = [];
+  for (const summary of result.paper_summaries ?? []) {
+    for (const dt of summary.distinctive_topics ?? []) {
+      if (typeof dt !== "string" || !dt.trim()) continue;
+      const normalized = normalizeTopicName(dt);
+      const covered = topicNames.some(
+        (tn) => tn.includes(normalized) || normalized.includes(tn),
+      );
+      if (!covered) {
+        issues.push(
+          `"${dt}" was listed as a distinctive topic in ${summary.paper}'s summary but has no matching entry in topics — add it as a real topic if the paper text supports it.`,
+        );
+      }
+    }
+  }
+  return issues;
+}
+
+Then inside `getTopicQualityIssues`, right after this existing line:
+  issues.push(...invalidStudyNotes);
+  issues.push(...getConcreteStudyNoteIssues(result));
+add:
+  issues.push(...getUncoveredDistinctiveTopicIssues(result));
+
+FIX 4 — Find the frontend file that renders the "Maximum Coverage" / "~X% coverage" badge (search for "Maximum Coverage" across .tsx files). Make the badge text conditional: if the analysis result's `degraded` flag is true OR `qualityIssues` array is non-empty, show "{topicCount} topics found — some patterns may not be fully covered" instead of the "Maximum Coverage" / percentage badge. Check whether `degraded` and `qualityIssues` are already being persisted on the analysis record and exposed to the frontend API response — if not, add them to whatever DB write/API response currently saves the analysis result, without changing any other field.
+
+After making all changes, run the existing test suite (especially artifacts/api-server/src/__tests__/openai-fallback-flow.test.ts and openai-validation.test.ts) and fix any assertions that hardcode the old ">= 5" thresholds to match the new ">= 4" behavior — check test expectations like getAnalysisModelForPaperCount(4) which currently expects "gpt-4o-mini" and will now need to expect "gpt-5-mini".
+
+Do not touch MAX_CHARS_PER_PAPER, the hard-cap of 2 AI calls, or any part of the OCR/vision-transcription pipeline.

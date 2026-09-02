@@ -168,6 +168,12 @@ paths:
       operationId: createPaymentOrder
       tags: [payments]
       summary: Create a Razorpay order for credit pack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentOrderInput"
       responses:
         "201":
           description: Razorpay order details
@@ -253,6 +259,26 @@ components:
           type: number
         freeCreditUsed:
           type: boolean
+        nextExpiresAt:
+          type: ["string", "null"]
+          format: date-time
+          description: ISO date string of the soonest expiring paid batch, null if only free credits
+        batches:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditBatchItem"
+
+    CreditBatchItem:
+      type: object
+      required: [credits, isPaid, expiresAt]
+      properties:
+        credits:
+          type: number
+        isPaid:
+          type: boolean
+        expiresAt:
+          type: ["string", "null"]
+          format: date-time
 
     UserStats:
       type: object
@@ -289,6 +315,13 @@ components:
         status:
           type: string
           enum: [pending, processing, completed, failed]
+        processingStage:
+          type: ["string", "null"]
+          enum: [text_extraction, ai_analysis, pdf_generation, null]
+        processingCurrent:
+          type: ["number", "null"]
+        processingTotal:
+          type: ["number", "null"]
         hasPdf:
           type: boolean
         createdAt:
@@ -315,10 +348,25 @@ components:
         status:
           type: string
           enum: [pending, processing, completed, failed]
+        processingStage:
+          type: ["string", "null"]
+          enum: [text_extraction, ai_analysis, pdf_generation, null]
+        processingCurrent:
+          type: ["number", "null"]
+        processingTotal:
+          type: ["number", "null"]
         errorMessage:
           type: ["string", "null"]
+        degraded:
+          type: boolean
+        qualityIssues:
+          type: array
+          items:
+            type: string
         aiResponse:
-          $ref: "#/components/schemas/AiAnalysisResult"
+          oneOf:
+            - $ref: "#/components/schemas/AiAnalysisResult"
+            - $ref: "#/components/schemas/LegacyAiAnalysisResult"
         hasPdf:
           type: boolean
         createdAt:
@@ -326,6 +374,112 @@ components:
           format: date-time
 
     AiAnalysisResult:
+      type: object
+      required: [subject, years_analyzed, topics, related_topic_pairs, overall_strategy_tip]
+      properties:
+        subject:
+          type: string
+        years_analyzed:
+          type: array
+          items:
+            type: string
+        paper_summaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaperSummary"
+        topics:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopicResult"
+        related_topic_pairs:
+          type: array
+          items:
+            type: string
+        overall_strategy_tip:
+          type: string
+
+    TopicResult:
+      type: object
+      required: [topic_name, priority, frequency, years_appeared, confidence_level, marks_weightage, question_type_breakdown, study_note, key_terms]
+      properties:
+        topic_name:
+          type: string
+        priority:
+          type: string
+          enum: [High, Medium, Low]
+        frequency:
+          type: number
+        years_appeared:
+          type: array
+          items:
+            type: string
+        confidence_level:
+          type: string
+          enum: [High, Medium, Low]
+        marks_weightage:
+          type: string
+        question_type_breakdown:
+          $ref: "#/components/schemas/QuestionTypeBreakdown"
+        study_note:
+          $ref: "#/components/schemas/StudyNote"
+        paper_question_evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaperQuestionEvidence"
+        key_terms:
+          type: array
+          items:
+            type: string
+
+    QuestionTypeBreakdown:
+      type: object
+      required: [mcq, short, long, case_study]
+      properties:
+        mcq:
+          type: string
+        short:
+          type: string
+        long:
+          type: string
+        case_study:
+          type: string
+
+    StudyNote:
+      type: object
+      required: [kya_padhna_hai, kaise_poochha_jaata_hai, repeat_pattern]
+      properties:
+        kya_padhna_hai:
+          type: string
+        kaise_poochha_jaata_hai:
+          type: string
+        repeat_pattern:
+          type: string
+
+    PaperQuestionEvidence:
+      type: object
+      required: [paper, evidence]
+      properties:
+        paper:
+          type: string
+        evidence:
+          type: string
+
+    PaperSummary:
+      type: object
+      required: [paper, summary, question_count, distinctive_topics]
+      properties:
+        paper:
+          type: string
+        summary:
+          type: string
+        question_count:
+          type: number
+        distinctive_topics:
+          type: array
+          items:
+            type: string
+
+    LegacyAiAnalysisResult:
       type: object
       required: [subject, category, years_analyzed, chapters, overall_strategy_tip]
       properties:
@@ -338,11 +492,11 @@ components:
         chapters:
           type: array
           items:
-            $ref: "#/components/schemas/ChapterResult"
+            $ref: "#/components/schemas/LegacyChapterResult"
         overall_strategy_tip:
           type: string
 
-    ChapterResult:
+    LegacyChapterResult:
       type: object
       required: [chapter_name, frequency, marks_weightage, priority]
       properties:
@@ -385,7 +539,7 @@ components:
 
     PaymentOrder:
       type: object
-      required: [orderId, amount, currency, key]
+      required: [orderId, amount, currency, key, credits]
       properties:
         orderId:
           type: string
@@ -395,6 +549,16 @@ components:
           type: string
         key:
           type: string
+        credits:
+          type: number
+
+    PaymentOrderInput:
+      type: object
+      required: [packageId]
+      properties:
+        packageId:
+          type: string
+          enum: [starter, value]
 
     PaymentVerification:
       type: object

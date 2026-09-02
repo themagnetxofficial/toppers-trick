@@ -7,7 +7,9 @@
  */
 import type { AiAnalysisResult } from './aiAnalysisResult';
 import type { AnalysisCategory } from './analysisCategory';
+import type { AnalysisProcessingStage } from './analysisProcessingStage';
 import type { AnalysisStatus } from './analysisStatus';
+import type { LegacyAiAnalysisResult } from './legacyAiAnalysisResult';
 
 export interface Analysis {
   id: number;
@@ -21,8 +23,16 @@ export interface Analysis {
   yearsAnalyzed?: number | null;
   status: AnalysisStatus;
   /** @nullable */
+  processingStage?: AnalysisProcessingStage;
+  /** @nullable */
+  processingCurrent?: number | null;
+  /** @nullable */
+  processingTotal?: number | null;
+  /** @nullable */
   errorMessage?: string | null;
-  aiResponse?: AiAnalysisResult;
+  degraded?: boolean;
+  qualityIssues?: string[];
+  aiResponse?: AiAnalysisResult | LegacyAiAnalysisResult;
   hasPdf?: boolean;
   createdAt: Date;
 }

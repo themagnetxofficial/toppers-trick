@@ -104,6 +104,40 @@ describe("OpenAI vision transcription", () => {
     );
   });
 
+  it("batches scanned pages into one request while preserving page-level output", async () => {
+    create.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content:
+              "<<<OCR_PAGE_1>>>\nFirst Biology page\n<<<END_OCR_PAGE_1>>>\n" +
+              "<<<OCR_PAGE_2>>>\nSecond Biology page\n<<<END_OCR_PAGE_2>>>",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      transcribeImagesWithVision(
+        [
+          { data: Buffer.from("one"), mimeType: "image/png", label: "biology.pdf, page 1" },
+          { data: Buffer.from("two"), mimeType: "image/png", label: "biology.pdf, page 2" },
+        ],
+        { batchSize: 2 },
+      ),
+    ).resolves.toBe(
+      "--- OCR page 1: biology.pdf, page 1 ---\nFirst Biology page\n\n" +
+        "--- OCR page 2: biology.pdf, page 2 ---\nSecond Biology page",
+    );
+
+    expect(create).toHaveBeenCalledTimes(1);
+    const request = create.mock.calls[0]![0];
+    const content = request.messages[0].content;
+    expect(content.filter((item: { type: string }) => item.type === "image_url")).toHaveLength(2);
+    expect(content[0].text).toContain("<<<OCR_PAGE_1>>>");
+    expect(content[0].text).toContain("<<<END_OCR_PAGE_2>>>");
+  });
+
   it("retries an empty vision response before accepting recovered text", async () => {
     create.mockResolvedValueOnce({ choices: [{ message: { content: "" } }] });
 

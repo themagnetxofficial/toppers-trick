@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AnalysisSummaryCategory } from './analysisSummaryCategory';
+import type { AnalysisSummaryProcessingStage } from './analysisSummaryProcessingStage';
 import type { AnalysisSummaryStatus } from './analysisSummaryStatus';
 
 export interface AnalysisSummary {
@@ -19,6 +20,12 @@ export interface AnalysisSummary {
   /** @nullable */
   yearsAnalyzed?: number | null;
   status: AnalysisSummaryStatus;
+  /** @nullable */
+  processingStage?: AnalysisSummaryProcessingStage;
+  /** @nullable */
+  processingCurrent?: number | null;
+  /** @nullable */
+  processingTotal?: number | null;
   hasPdf?: boolean;
   createdAt: Date;
 }

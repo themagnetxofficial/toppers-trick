@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Download, FileText, AlertCircle, Lightbulb, Target, Sparkles, AlertTriangle, Info, RefreshCw, Layers, Link } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { AnalysisProcessingStatus } from "@/components/analysis-processing-status";
 
 // ─── Type helpers for both old and new schema ────────────────────────────────
 
@@ -135,7 +136,17 @@ export default function AnalysisResultPage() {
   const id = parseInt(params.id || "0", 10);
 
   const { data: analysis, isLoading, error } = useGetAnalysis(id, {
-    query: { queryKey: getGetAnalysisQueryKey(id), enabled: !!id }
+    query: {
+      queryKey: getGetAnalysisQueryKey(id),
+      enabled: !!id,
+      refetchInterval: (query) => {
+        const data = query.state.data;
+        return data?.status === "processing" || data?.status === "pending"
+          ? 2000
+          : false;
+      },
+      refetchOnMount: "always",
+    }
   });
 
   const { refetch: getPdfUrl } = useDownloadAnalysisPdf(id, {
@@ -181,16 +192,8 @@ export default function AnalysisResultPage() {
     );
   }
 
-  if (analysis.status === 'processing') {
-    return (
-      <Card className="max-w-2xl mx-auto border-primary/20 bg-primary/5">
-        <CardContent className="p-12 text-center flex flex-col items-center">
-          <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin mb-4" />
-          <h2 className="text-xl font-bold font-serif mb-2">Still Processing...</h2>
-          <p className="text-muted-foreground">Your study guide is currently being generated. Please wait.</p>
-        </CardContent>
-      </Card>
-    );
+  if (analysis.status === "processing" || analysis.status === "pending") {
+    return <AnalysisProcessingStatus analysis={analysis} />;
   }
 
   if (analysis.status === 'failed') {
@@ -261,6 +264,8 @@ export default function AnalysisResultPage() {
   // Support both new (topics) and old (chapters) schema
   const allTopics: TopicData[] = (ai?.topics ?? ai?.chapters ?? []) as TopicData[];
   const relatedPairs: string[] = ai?.related_topic_pairs ?? ai?.cross_chapter_patterns ?? [];
+  const hasIncompleteCoverage =
+    analysis.degraded === true || (analysis.qualityIssues?.length ?? 0) > 0;
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -420,7 +425,9 @@ export default function AnalysisResultPage() {
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-2xl">{tier.emoji}</span>
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tier.badge}`}>
-                        {tier.count}/{total} topics · {tier.coverageLabel ?? `~${tier.coverage}% coverage`}
+                        {hasIncompleteCoverage
+                          ? `${total} topics found — some patterns may not be fully covered`
+                          : `${tier.count}/${total} topics · ${tier.coverageLabel ?? `~${tier.coverage}% coverage`}`}
                       </span>
                     </div>
                     <CardTitle className="text-base font-bold font-serif mt-1">{tier.title}</CardTitle>

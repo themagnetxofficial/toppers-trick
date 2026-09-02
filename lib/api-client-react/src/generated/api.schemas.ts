@@ -22,6 +22,7 @@ export interface UserProfile {
 export interface CreditBatchItem {
   credits: number;
   isPaid: boolean;
+  /** @nullable */
   expiresAt: string | null;
 }
 
@@ -29,7 +30,10 @@ export interface CreditBalance {
   creditsRemaining: number;
   totalPurchased: number;
   freeCreditUsed?: boolean;
-  /** ISO date string of the soonest expiring paid batch, null if only free credits */
+  /**
+     * ISO date string of the soonest expiring paid batch, null if only free credits
+     * @nullable
+     */
   nextExpiresAt?: string | null;
   batches?: CreditBatchItem[];
 }
@@ -59,6 +63,18 @@ export const AnalysisSummaryStatus = {
   failed: 'failed',
 } as const;
 
+/**
+ * @nullable
+ */
+export type AnalysisSummaryProcessingStage = typeof AnalysisSummaryProcessingStage[keyof typeof AnalysisSummaryProcessingStage] | null;
+
+
+export const AnalysisSummaryProcessingStage = {
+  text_extraction: 'text_extraction',
+  ai_analysis: 'ai_analysis',
+  pdf_generation: 'pdf_generation',
+} as const;
+
 export interface AnalysisSummary {
   id: number;
   category: AnalysisSummaryCategory;
@@ -70,6 +86,12 @@ export interface AnalysisSummary {
   /** @nullable */
   yearsAnalyzed?: number | null;
   status: AnalysisSummaryStatus;
+  /** @nullable */
+  processingStage?: AnalysisSummaryProcessingStage;
+  /** @nullable */
+  processingCurrent?: number | null;
+  /** @nullable */
+  processingTotal?: number | null;
   hasPdf?: boolean;
   createdAt: string;
 }
@@ -92,29 +114,106 @@ export const AnalysisStatus = {
   failed: 'failed',
 } as const;
 
-export type ChapterResultPriority = typeof ChapterResultPriority[keyof typeof ChapterResultPriority];
+/**
+ * @nullable
+ */
+export type AnalysisProcessingStage = typeof AnalysisProcessingStage[keyof typeof AnalysisProcessingStage] | null;
 
 
-export const ChapterResultPriority = {
+export const AnalysisProcessingStage = {
+  text_extraction: 'text_extraction',
+  ai_analysis: 'ai_analysis',
+  pdf_generation: 'pdf_generation',
+} as const;
+
+export interface PaperSummary {
+  paper: string;
+  summary: string;
+  question_count: number;
+  distinctive_topics: string[];
+}
+
+export type TopicResultPriority = typeof TopicResultPriority[keyof typeof TopicResultPriority];
+
+
+export const TopicResultPriority = {
   High: 'High',
   Medium: 'Medium',
   Low: 'Low',
 } as const;
 
-export interface ChapterResult {
-  chapter_name: string;
+export type TopicResultConfidenceLevel = typeof TopicResultConfidenceLevel[keyof typeof TopicResultConfidenceLevel];
+
+
+export const TopicResultConfidenceLevel = {
+  High: 'High',
+  Medium: 'Medium',
+  Low: 'Low',
+} as const;
+
+export interface QuestionTypeBreakdown {
+  mcq: string;
+  short: string;
+  long: string;
+  case_study: string;
+}
+
+export interface StudyNote {
+  kya_padhna_hai: string;
+  kaise_poochha_jaata_hai: string;
+  repeat_pattern: string;
+}
+
+export interface PaperQuestionEvidence {
+  paper: string;
+  evidence: string;
+}
+
+export interface TopicResult {
+  topic_name: string;
+  priority: TopicResultPriority;
   frequency: number;
+  years_appeared: string[];
+  confidence_level: TopicResultConfidenceLevel;
   marks_weightage: string;
-  priority: ChapterResultPriority;
-  /** @nullable */
-  study_note?: string | null;
+  question_type_breakdown: QuestionTypeBreakdown;
+  study_note: StudyNote;
+  paper_question_evidence?: PaperQuestionEvidence[];
+  key_terms: string[];
 }
 
 export interface AiAnalysisResult {
   subject: string;
+  years_analyzed: string[];
+  paper_summaries?: PaperSummary[];
+  topics: TopicResult[];
+  related_topic_pairs: string[];
+  overall_strategy_tip: string;
+}
+
+export type LegacyChapterResultPriority = typeof LegacyChapterResultPriority[keyof typeof LegacyChapterResultPriority];
+
+
+export const LegacyChapterResultPriority = {
+  High: 'High',
+  Medium: 'Medium',
+  Low: 'Low',
+} as const;
+
+export interface LegacyChapterResult {
+  chapter_name: string;
+  frequency: number;
+  marks_weightage: string;
+  priority: LegacyChapterResultPriority;
+  /** @nullable */
+  study_note?: string | null;
+}
+
+export interface LegacyAiAnalysisResult {
+  subject: string;
   category: string;
   years_analyzed: number;
-  chapters: ChapterResult[];
+  chapters: LegacyChapterResult[];
   overall_strategy_tip: string;
 }
 
@@ -130,8 +229,16 @@ export interface Analysis {
   yearsAnalyzed?: number | null;
   status: AnalysisStatus;
   /** @nullable */
+  processingStage?: AnalysisProcessingStage;
+  /** @nullable */
+  processingCurrent?: number | null;
+  /** @nullable */
+  processingTotal?: number | null;
+  /** @nullable */
   errorMessage?: string | null;
-  aiResponse?: AiAnalysisResult;
+  degraded?: boolean;
+  qualityIssues?: string[];
+  aiResponse?: AiAnalysisResult | LegacyAiAnalysisResult;
   hasPdf?: boolean;
   createdAt: string;
 }
@@ -156,18 +263,24 @@ export interface PdfDownload {
   url: string;
 }
 
-export type PackageId = 'starter' | 'value';
-
-export interface PackageOrderInput {
-  packageId: PackageId;
-}
-
 export interface PaymentOrder {
   orderId: string;
   amount: number;
   currency: string;
   key: string;
   credits: number;
+}
+
+export type PaymentOrderInputPackageId = typeof PaymentOrderInputPackageId[keyof typeof PaymentOrderInputPackageId];
+
+
+export const PaymentOrderInputPackageId = {
+  starter: 'starter',
+  value: 'value',
+} as const;
+
+export interface PaymentOrderInput {
+  packageId: PaymentOrderInputPackageId;
 }
 
 export interface PaymentVerification {

@@ -1,14 +1,30 @@
 import { Link } from "wouter";
-import { useListAnalyses } from "@workspace/api-client-react";
+import {
+  getListAnalysesQueryKey,
+  useListAnalyses,
+} from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileText, Clock, AlertTriangle, BookOpen, ChevronRight, Calendar, Layers, History } from "lucide-react";
 import { format } from "date-fns";
+import { getAnalysisProcessingSummary } from "@/components/analysis-processing-status";
 
 export default function HistoryPage() {
-  const { data: analyses, isLoading } = useListAnalyses();
+  const { data: analyses, isLoading } = useListAnalyses({
+    query: {
+      queryKey: getListAnalysesQueryKey(),
+      refetchInterval: (query) =>
+        query.state.data?.some(
+          (analysis) =>
+            analysis.status === "processing" || analysis.status === "pending",
+        )
+          ? 2000
+          : false,
+      refetchOnMount: "always",
+    },
+  });
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
@@ -79,6 +95,12 @@ export default function HistoryPage() {
                         {analysis.status}
                       </Badge>
                     </div>
+                    {(analysis.status === "processing" ||
+                      analysis.status === "pending") && (
+                      <p className="text-sm text-primary font-medium pt-1">
+                        {getAnalysisProcessingSummary(analysis)}
+                      </p>
+                    )}
                   </div>
 
                   {/* Arrow */}

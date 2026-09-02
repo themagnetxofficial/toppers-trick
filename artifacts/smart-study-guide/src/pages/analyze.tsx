@@ -12,15 +12,8 @@ import {
 import { UploadCloud, File, X, ChevronRight, ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-
-const HINGLISH_MESSAGES = [
-  "Aapke papers padhe ja rahe hain... 📖",
-  "Patterns dhundhe ja rahe hain... 🔍",
-  "AI analysis chal raha hai... 🤖",
-  "Important topics nikaale ja rahe hain... 🎯",
-  "Study guide ban raha hai... ✨",
-  "Bas thoda aur intezaar... ⏳"
-];
+import { AnalysisProcessingStatus } from "@/components/analysis-processing-status";
+import { estimateTotalPages, getEstimatedCredits } from "@/lib/analysis-estimate";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API_BASE_URL = `${basePath}/api`;
@@ -64,10 +57,11 @@ export default function AnalyzePage() {
   const [files, setFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [estimatedPages, setEstimatedPages] = useState<number | null>(null);
+  const [isEstimating, setIsEstimating] = useState(false);
   
   // Step 3 State
   const [analysisId, setAnalysisId] = useState<number | null>(null);
-  const [messageIndex, setMessageIndex] = useState(0);
 
   const createAnalysis = useCreateAnalysis();
   
@@ -79,20 +73,42 @@ export default function AnalyzePage() {
       refetchInterval: (query) => {
         const data = query.state.data;
         return data?.status === 'processing' || data?.status === 'pending' ? 2000 : false;
-      }
+      },
+      refetchOnMount: "always",
     } 
   });
 
-  // Cycle messages
   useEffect(() => {
-    if (step === 3) {
-      const interval = setInterval(() => {
-        setMessageIndex(prev => (prev + 1) % HINGLISH_MESSAGES.length);
-      }, 3000);
-      return () => clearInterval(interval);
+    if (files.length === 0) {
+      setEstimatedPages(null);
+      setIsEstimating(false);
+      return;
     }
-    return undefined;
-  }, [step]);
+
+    let cancelled = false;
+    setIsEstimating(true);
+
+    estimateTotalPages(files)
+      .then((pages) => {
+        if (!cancelled) {
+          setEstimatedPages(pages);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEstimatedPages(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsEstimating(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files]);
 
   // Check completion
   useEffect(() => {
@@ -413,7 +429,12 @@ export default function AnalyzePage() {
 
             <div className="pt-4 flex justify-between items-center border-t border-border">
               <span className="text-sm text-muted-foreground">
-                Costs <strong className="text-foreground">1 credit</strong>
+                Costs{" "}
+                <strong className="text-foreground" data-testid="text-analysis-cost">
+                  {isEstimating
+                    ? "…"
+                    : `${estimatedPages !== null ? getEstimatedCredits(estimatedPages) : 1} credit${estimatedPages !== null && getEstimatedCredits(estimatedPages) > 1 ? "s" : ""}`}
+                </strong>
               </span>
               <Button 
                 onClick={handleUploadAndAnalyze} 
@@ -439,25 +460,10 @@ export default function AnalyzePage() {
       )}
 
       {step === 3 && (
-        <Card className="shadow-xl border-primary/20 bg-gradient-to-b from-card to-secondary/20 animate-in zoom-in-95 duration-500 overflow-hidden">
-          <CardContent className="p-12 flex flex-col items-center justify-center text-center min-h-[400px]">
-            <div className="relative w-32 h-32 mb-8">
-              {/* Outer spinning ring */}
-              <div className="absolute inset-0 rounded-full border-4 border-primary/20 border-t-primary animate-spin" style={{ animationDuration: '3s' }} />
-              {/* Inner pulsing circle */}
-              <div className="absolute inset-2 rounded-full bg-primary/10 animate-pulse flex items-center justify-center">
-                <Sparkles className="w-10 h-10 text-primary animate-bounce" />
-              </div>
-            </div>
-            
-            <h2 className="text-3xl font-bold font-serif mb-4 transition-all duration-300">
-              {HINGLISH_MESSAGES[messageIndex]}
-            </h2>
-            <p className="text-muted-foreground text-lg max-w-sm">
-              Analysis mein 2–5 minute lag sakte hain. Please page band na karein — hum aapke papers ko dhyan se analyze kar rahe hain.
-            </p>
-          </CardContent>
-        </Card>
+        <AnalysisProcessingStatus
+          analysis={analysisData}
+          estimatedPages={estimatedPages ?? undefined}
+        />
       )}
     </div>
   );

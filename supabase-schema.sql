@@ -34,7 +34,13 @@ CREATE TABLE IF NOT EXISTS "analyses" (
   "subject"            TEXT NOT NULL,
   "years_analyzed"     INTEGER,
   "status"             TEXT NOT NULL DEFAULT 'pending', -- pending | processing | completed | failed
+  "processing_stage"   TEXT,                            -- text_extraction | ai_analysis | pdf_generation
+  "processing_current" INTEGER,
+  "processing_total"   INTEGER,
   "error_message"      TEXT,
+  "credits_charged"    INTEGER NOT NULL DEFAULT 1,
+  "degraded"           BOOLEAN NOT NULL DEFAULT FALSE,
+  "quality_issues"     JSONB NOT NULL DEFAULT '[]'::jsonb,
   "ai_response_json"   JSONB,
   "pdf_file_path"      TEXT,
   "input_file_paths"   JSONB,

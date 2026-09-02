@@ -5,9 +5,16 @@
  * Smart Study Guide API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreditBatchItem } from './creditBatchItem';
 
 export interface CreditBalance {
   creditsRemaining: number;
   totalPurchased: number;
   freeCreditUsed?: boolean;
+  /**
+     * ISO date string of the soonest expiring paid batch, null if only free credits
+     * @nullable
+     */
+  nextExpiresAt?: Date | null;
+  batches?: CreditBatchItem[];
 }

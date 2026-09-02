@@ -31,18 +31,16 @@ export const GetMeResponse = zod.object({
 /**
  * @summary Get user's credit balance
  */
-export const CreditBatchItem = zod.object({
-  "credits": zod.number(),
-  "isPaid": zod.boolean(),
-  "expiresAt": zod.coerce.date().nullable()
-})
-
 export const GetMyCreditsResponse = zod.object({
   "creditsRemaining": zod.number(),
   "totalPurchased": zod.number(),
   "freeCreditUsed": zod.boolean().optional(),
-  "nextExpiresAt": zod.coerce.date().nullable().optional(),
-  "batches": zod.array(CreditBatchItem).optional()
+  "nextExpiresAt": zod.coerce.date().nullish().describe('ISO date string of the soonest expiring paid batch, null if only free credits'),
+  "batches": zod.array(zod.object({
+  "credits": zod.number(),
+  "isPaid": zod.boolean(),
+  "expiresAt": zod.coerce.date().nullable()
+})).optional()
 })
 
 
@@ -68,6 +66,9 @@ export const ListAnalysesResponseItem = zod.object({
   "subject": zod.string(),
   "yearsAnalyzed": zod.number().nullish(),
   "status": zod.enum(['pending', 'processing', 'completed', 'failed']),
+  "processingStage": zod.union([zod.literal('text_extraction'),zod.literal('ai_analysis'),zod.literal('pdf_generation'),zod.literal(null)]).nullish(),
+  "processingCurrent": zod.number().nullish(),
+  "processingTotal": zod.number().nullish(),
   "hasPdf": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
@@ -93,8 +94,60 @@ export const CreateAnalysisResponse = zod.object({
   "subject": zod.string(),
   "yearsAnalyzed": zod.number().nullish(),
   "status": zod.enum(['pending', 'processing', 'completed', 'failed']),
+  "processingStage": zod.union([zod.literal('text_extraction'),zod.literal('ai_analysis'),zod.literal('pdf_generation'),zod.literal(null)]).nullish(),
+  "processingCurrent": zod.number().nullish(),
+  "processingTotal": zod.number().nullish(),
   "errorMessage": zod.string().nullish(),
-  "aiResponse": zod.record(zod.unknown()).optional(),
+  "degraded": zod.boolean().optional(),
+  "qualityIssues": zod.array(zod.string()).optional(),
+  "aiResponse": zod.union([zod.object({
+  "subject": zod.string(),
+  "years_analyzed": zod.array(zod.string()),
+  "paper_summaries": zod.array(zod.object({
+  "paper": zod.string(),
+  "summary": zod.string(),
+  "question_count": zod.number(),
+  "distinctive_topics": zod.array(zod.string())
+})).optional(),
+  "topics": zod.array(zod.object({
+  "topic_name": zod.string(),
+  "priority": zod.enum(['High', 'Medium', 'Low']),
+  "frequency": zod.number(),
+  "years_appeared": zod.array(zod.string()),
+  "confidence_level": zod.enum(['High', 'Medium', 'Low']),
+  "marks_weightage": zod.string(),
+  "question_type_breakdown": zod.object({
+  "mcq": zod.string(),
+  "short": zod.string(),
+  "long": zod.string(),
+  "case_study": zod.string()
+}),
+  "study_note": zod.object({
+  "kya_padhna_hai": zod.string(),
+  "kaise_poochha_jaata_hai": zod.string(),
+  "repeat_pattern": zod.string()
+}),
+  "paper_question_evidence": zod.array(zod.object({
+  "paper": zod.string(),
+  "evidence": zod.string()
+})).optional(),
+  "key_terms": zod.array(zod.string())
+})),
+  "related_topic_pairs": zod.array(zod.string()),
+  "overall_strategy_tip": zod.string()
+}),zod.object({
+  "subject": zod.string(),
+  "category": zod.string(),
+  "years_analyzed": zod.number(),
+  "chapters": zod.array(zod.object({
+  "chapter_name": zod.string(),
+  "frequency": zod.number(),
+  "marks_weightage": zod.string(),
+  "priority": zod.enum(['High', 'Medium', 'Low']),
+  "study_note": zod.string().nullish()
+})),
+  "overall_strategy_tip": zod.string()
+})]).optional(),
   "hasPdf": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
@@ -115,8 +168,60 @@ export const GetAnalysisResponse = zod.object({
   "subject": zod.string(),
   "yearsAnalyzed": zod.number().nullish(),
   "status": zod.enum(['pending', 'processing', 'completed', 'failed']),
+  "processingStage": zod.union([zod.literal('text_extraction'),zod.literal('ai_analysis'),zod.literal('pdf_generation'),zod.literal(null)]).nullish(),
+  "processingCurrent": zod.number().nullish(),
+  "processingTotal": zod.number().nullish(),
   "errorMessage": zod.string().nullish(),
-  "aiResponse": zod.record(zod.unknown()).optional(),
+  "degraded": zod.boolean().optional(),
+  "qualityIssues": zod.array(zod.string()).optional(),
+  "aiResponse": zod.union([zod.object({
+  "subject": zod.string(),
+  "years_analyzed": zod.array(zod.string()),
+  "paper_summaries": zod.array(zod.object({
+  "paper": zod.string(),
+  "summary": zod.string(),
+  "question_count": zod.number(),
+  "distinctive_topics": zod.array(zod.string())
+})).optional(),
+  "topics": zod.array(zod.object({
+  "topic_name": zod.string(),
+  "priority": zod.enum(['High', 'Medium', 'Low']),
+  "frequency": zod.number(),
+  "years_appeared": zod.array(zod.string()),
+  "confidence_level": zod.enum(['High', 'Medium', 'Low']),
+  "marks_weightage": zod.string(),
+  "question_type_breakdown": zod.object({
+  "mcq": zod.string(),
+  "short": zod.string(),
+  "long": zod.string(),
+  "case_study": zod.string()
+}),
+  "study_note": zod.object({
+  "kya_padhna_hai": zod.string(),
+  "kaise_poochha_jaata_hai": zod.string(),
+  "repeat_pattern": zod.string()
+}),
+  "paper_question_evidence": zod.array(zod.object({
+  "paper": zod.string(),
+  "evidence": zod.string()
+})).optional(),
+  "key_terms": zod.array(zod.string())
+})),
+  "related_topic_pairs": zod.array(zod.string()),
+  "overall_strategy_tip": zod.string()
+}),zod.object({
+  "subject": zod.string(),
+  "category": zod.string(),
+  "years_analyzed": zod.number(),
+  "chapters": zod.array(zod.object({
+  "chapter_name": zod.string(),
+  "frequency": zod.number(),
+  "marks_weightage": zod.string(),
+  "priority": zod.enum(['High', 'Medium', 'Low']),
+  "study_note": zod.string().nullish()
+})),
+  "overall_strategy_tip": zod.string()
+})]).optional(),
   "hasPdf": zod.boolean().optional(),
   "createdAt": zod.coerce.date()
 })
@@ -138,7 +243,7 @@ export const DownloadAnalysisPdfResponse = zod.object({
  * @summary Create a Razorpay order for credit pack
  */
 export const CreatePaymentOrderBody = zod.object({
-  "packageId": zod.enum(["starter", "value"])
+  "packageId": zod.enum(['starter', 'value'])
 })
 
 export const CreatePaymentOrderResponse = zod.object({
@@ -151,7 +256,7 @@ export const CreatePaymentOrderResponse = zod.object({
 
 
 /**
- * @summary Verify Razorpay payment and add credits
+ * @summary Verify Razorpay payment and add 10 credits
  */
 export const VerifyPaymentBody = zod.object({
   "razorpayOrderId": zod.string(),
@@ -162,7 +267,13 @@ export const VerifyPaymentBody = zod.object({
 export const VerifyPaymentResponse = zod.object({
   "creditsRemaining": zod.number(),
   "totalPurchased": zod.number(),
-  "freeCreditUsed": zod.boolean().optional()
+  "freeCreditUsed": zod.boolean().optional(),
+  "nextExpiresAt": zod.coerce.date().nullish().describe('ISO date string of the soonest expiring paid batch, null if only free credits'),
+  "batches": zod.array(zod.object({
+  "credits": zod.number(),
+  "isPaid": zod.boolean(),
+  "expiresAt": zod.coerce.date().nullable()
+})).optional()
 })
 
 

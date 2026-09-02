@@ -1,0 +1,15 @@
+CRITICAL SEQUENCING BUG from the previous fix.
+
+Symptom: Since tightening hasNonEmptyStudyNotes to require 4-6 properly formatted bullets, some analyses now fail immediately with "The analysis response did not include any usable topics" — this is validateAiAnalysisResult's early filter (right after the INITIAL AI response is parsed, BEFORE the repair/patch call ever runs) removing topics for insufficient study-note bullets. If the initial response's topics commonly have only 2-3 bullets (which is common per our repeated observations in quality_issues logs), this early filter can now zero out ALL topics before the repair call — which exists specifically to fix exactly this kind of incompleteness — ever gets a chance to run.
+
+Root cause: applying the strict 4-6-bullet completeness gate at the EARLY validateAiAnalysisResult call (immediately after the initial parse) is too aggressive, because it deletes topics before the repair mechanism can improve or replace them.
+
+Required fix: the strict 4-6-bullet study-note completeness gate should only be enforced as the FINAL inclusion gate — i.e., AFTER the repair/patch call has run (or after we've determined no repair is needed/possible), not on the initial pre-repair parse. Before repair, use a more lenient check (e.g., the original non-empty-string check) so topics with weak-but-present study notes survive into the repair stage, where getTopicQualityIssues will correctly flag their bullet-count issue and the targeted repair prompt can attempt to fix them. Only apply the strict 4-6-bullet gate at the point where we decide the FINAL accepted topics list (after repair has had its one chance).
+
+Investigate exactly where validateAiAnalysisResult is called relative to the repair loop (there appear to be at least two call sites — once early after initial parsing, and again after the repair patch is applied). Confirm this by viewing both call sites. Then determine the minimal way to make the EARLY call use lenient validation (non-empty string only) while the LATE/final call (after repair) uses the strict 4-6-bullet validation we just added. This may require passing a strictness parameter/flag into hasNonEmptyStudyNotes or validateAiAnalysisResult, or having two separate check functions used at the appropriate points.
+
+Do not change the system prompt, model selection, the catastrophic-quality-floor safeguard, credits/billing logic, or the two-call hard cap. This is purely about WHEN the strict completeness check gets applied, not removing the strict check itself — the final result must still never contain topics with fewer than 4 bullets.
+
+After the fix, run the full test suite, and add a regression test confirming: a topic with 2-3 bullets that survives into the repair stage (because early validation was lenient) still gets correctly flagged and excluded from the FINAL result if repair doesn't fix it — and does NOT cause the entire analysis to fail with "no usable topics" just because it had weak (but non-empty) content in the initial pass.
+
+Report clearly which call sites you found and how you sequenced the strict-vs-lenient checks.

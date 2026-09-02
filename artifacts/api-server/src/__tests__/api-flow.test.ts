@@ -47,6 +47,8 @@ const { dbState, uploadsDir } = vi.hoisted(() => {
         aiResponseJson: null,
         errorMessage: null,
         yearsAnalyzed: null,
+        degraded: false,
+        qualityIssues: [],
         createdAt: new Date().toISOString(),
       } as Record<string, unknown>,
     },
@@ -221,6 +223,8 @@ vi.mock("../lib/openai", () => ({
     },
     inputTokens: 100,
     outputTokens: 200,
+      degraded: false,
+      qualityIssues: [],
   }),
 }));
 
@@ -233,6 +237,12 @@ vi.mock("../lib/pdfService", () => ({
 
 // Stub text extraction
 vi.mock("../lib/extractText", () => ({
+  getCreditsForPageCount: vi.fn((totalPages: number) => {
+    if (totalPages > 40) return 3;
+    if (totalPages >= 20) return 2;
+    return 1;
+  }),
+  getTotalPageCount: vi.fn().mockResolvedValue(1),
   extractTextFromFiles: vi
     .fn()
     .mockResolvedValue("Question 1: Describe Newton's laws (10 marks)"),
@@ -371,6 +381,34 @@ describe("POST /api/analyses", () => {
 
     dbState.credits = original;
     expect(res.status).toBe(402);
+  });
+
+  it("charges two credits and rolls back when the second deduction is unavailable", async () => {
+    const fakePath = path.join(uploadsDir, "two-credit-analysis.pdf");
+    fs.writeFileSync(fakePath, "%PDF-1.4 test");
+    const { db } = await import("@workspace/db");
+    const { getTotalPageCount } = await import("../lib/extractText");
+
+    vi.mocked(db.transaction).mockClear();
+    vi.mocked(db.execute).mockClear();
+    vi.mocked(getTotalPageCount).mockResolvedValueOnce(20);
+    vi.mocked(db.execute)
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] } as any)
+      .mockResolvedValueOnce({ rows: [] } as any);
+
+    const res = await request(app)
+      .post("/api/analyses")
+      .send({
+        category: "school",
+        subject: "Physics",
+        filePaths: [fakePath],
+      });
+
+    expect(res.status).toBe(402);
+    expect(res.body.error).toContain("requires 2 credit(s)");
+    expect(vi.mocked(db.transaction)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(2);
+    expect(fs.existsSync(fakePath)).toBe(false);
   });
 
   it("creates an analysis and responds 201 with status=processing", async () => {
@@ -539,6 +577,118 @@ describe("background analysis diagnostics", () => {
     fs.rmSync(paper, { force: true });
   });
 
+  it("persists degraded status and quality issues with a completed analysis", async () => {
+    const { db } = await import("@workspace/db");
+    const { analyzeWithAI } = await import("../lib/openai");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const paper = path.join(uploadsDir, "degraded-analysis.pdf");
+    fs.writeFileSync(paper, "%PDF-1.4 test");
+    vi.mocked(db.update).mockClear();
+    vi.mocked(extractTextFromFilesWithLabels).mockResolvedValueOnce({
+      text: "--- Year: Paper 1 ---\nQuestion 1: Describe Newton's laws (10 marks)",
+      yearLabels: ["Paper 1"],
+      papers: [
+        {
+          label: "Paper 1",
+          text: "Question 1: Describe Newton's laws of motion in detail (10 marks).",
+        },
+      ],
+      extractedCharacterCount: 59,
+    });
+    vi.mocked(analyzeWithAI).mockResolvedValueOnce({
+      result: {
+        subject: "Physics",
+        years_analyzed: ["Paper 1"],
+        topics: [],
+        related_topic_pairs: [],
+        overall_strategy_tip: "Start with the available topics.",
+      },
+      inputTokens: 100,
+      outputTokens: 200,
+      usage: [],
+      degraded: true,
+      qualityIssues: ["The result did not fully cover the paper."],
+    });
+
+    await processAnalysis(102, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [paper],
+      userId: 1,
+    });
+
+    const finalUpdate = vi.mocked(db.update).mock.results.at(-1)?.value as {
+      set: ReturnType<typeof vi.fn>;
+    };
+    expect(finalUpdate.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        degraded: true,
+        qualityIssues: ["The result did not fully cover the paper."],
+      }),
+    );
+    expect(fs.existsSync(paper)).toBe(false);
+  });
+
+  it("fails and refunds when catastrophic repair quality is rejected", async () => {
+    const { db } = await import("@workspace/db");
+    const { analyzeWithAI } = await import("../lib/openai");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const paper = path.join(uploadsDir, "catastrophic-quality-analysis.pdf");
+    fs.writeFileSync(paper, "%PDF-1.4 test");
+    dbState.analysis = {
+      id: 104,
+      userId: 1,
+      status: "processing",
+      creditsCharged: 2,
+    };
+    vi.mocked(db.update).mockClear();
+    vi.mocked(db.execute).mockClear();
+    vi.mocked(extractTextFromFilesWithLabels).mockResolvedValueOnce({
+      text: "--- Year: Paper 1 ---\nQuestion 1: Describe Newton's laws (10 marks)",
+      yearLabels: ["Paper 1"],
+      papers: [
+        {
+          label: "Paper 1",
+          text: "Question 1: Describe Newton's laws of motion in detail (10 marks).",
+        },
+      ],
+      extractedCharacterCount: 59,
+    });
+    const qualityError = new Error(
+      "Analysis quality too low to return: only 5 topics remained after repair, below the minimum acceptable floor of 6",
+    );
+    vi.mocked(analyzeWithAI).mockRejectedValueOnce(qualityError);
+
+    await processAnalysis(104, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [paper],
+      userId: 1,
+    });
+
+    const updatePayloads = vi.mocked(db.update).mock.results.map((result) => {
+      const chain = result.value as { set: ReturnType<typeof vi.fn> };
+      return chain.set.mock.calls[0]?.[0];
+    });
+    expect(updatePayloads).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "pending"),
+      }),
+    );
+    expect(updatePayloads.at(-1)).toEqual({
+      errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "confirmed"),
+    });
+    expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(2);
+
+    dbState.analysis = null;
+    fs.rmSync(paper, { force: true });
+  });
+
   it("records an accurate message when the automatic refund cannot complete", async () => {
     const { db } = await import("@workspace/db");
     vi.mocked(db.update).mockClear();
@@ -563,6 +713,36 @@ describe("background analysis diagnostics", () => {
       errorMessage: getAnalysisFailureMessageWithRefund("file_missing", "unconfirmed"),
     });
   });
+
+  it.each([2, 3])(
+    "refunds the stored %i-credit charge after a failed analysis",
+    async (creditsCharged) => {
+      const { db } = await import("@workspace/db");
+      const missingPath = path.join(
+        uploadsDir,
+        `missing-${creditsCharged}-credit-analysis.pdf`,
+      );
+      dbState.analysis = {
+        id: 103 + creditsCharged,
+        userId: 1,
+        status: "processing",
+        creditsCharged,
+      };
+      vi.mocked(db.execute).mockClear();
+
+      await processAnalysis(103 + creditsCharged, {
+        category: "school",
+        classOrCourse: "12th",
+        boardOrUniversity: "CBSE",
+        subject: "Physics",
+        filePaths: [missingPath],
+        userId: 1,
+      });
+
+      expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(creditsCharged);
+      dbState.analysis = null;
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -582,6 +762,8 @@ describe("GET /api/analyses/:id", () => {
       pdfFilePath: null,
       aiResponseJson: null,
       errorMessage: null,
+      degraded: false,
+      qualityIssues: [],
       createdAt: new Date().toISOString(),
     };
   });
@@ -632,6 +814,114 @@ describe("GET /api/analyses/:id", () => {
     expect(res.body.hasPdf).toBe(true);
     expect(Array.isArray(res.body.aiResponse?.chapters)).toBe(true);
     expect(res.body.aiResponse.chapters[0].chapter_name).toBe("Mechanics");
+  });
+
+  it("returns the current topic-based analysis response", async () => {
+    dbState.analysis = {
+      ...dbState.analysis!,
+      status: "completed",
+      yearsAnalyzed: 1,
+      pdfFilePath: "study-guide-42.pdf",
+      aiResponseJson: {
+        subject: "Biology",
+        years_analyzed: ["Paper 1"],
+        paper_summaries: [
+          {
+            paper: "Paper 1",
+            summary: "The paper tests cell division and inheritance patterns.",
+            question_count: 18,
+            distinctive_topics: ["Mitosis and meiosis"],
+          },
+        ],
+        topics: [
+          {
+            topic_name: "Mitosis and meiosis",
+            priority: "High",
+            frequency: 2,
+            years_appeared: ["Paper 1"],
+            confidence_level: "High",
+            marks_weightage: "4-6 marks",
+            question_type_breakdown: {
+              mcq: "1",
+              short: "1",
+              long: "None",
+              case_study: "None",
+            },
+            study_note: {
+              kya_padhna_hai: "Stages and differences between mitosis and meiosis.",
+              kaise_poochha_jaata_hai: "Compare stages or identify the process from a diagram.",
+              repeat_pattern: "Appeared once in this paper.",
+            },
+            paper_question_evidence: [
+              {
+                paper: "Paper 1",
+                evidence: "Compare the stages of mitosis and meiosis.",
+              },
+            ],
+            key_terms: ["chromosome", "crossing over"],
+          },
+        ],
+        related_topic_pairs: [],
+        overall_strategy_tip: "Revise the stages and practice diagram-based comparisons.",
+      },
+      degraded: true,
+      qualityIssues: ["One distinctive topic still needs verification."],
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+    expect(res.status).toBe(200);
+    expect(res.body.aiResponse.years_analyzed).toEqual(["Paper 1"]);
+    expect(res.body.aiResponse.topics[0].topic_name).toBe("Mitosis and meiosis");
+    expect(res.body.degraded).toBe(true);
+    expect(res.body.qualityIssues).toEqual(["One distinctive topic still needs verification."]);
+  });
+
+  it("recovers a completed analysis whose topic fields are incomplete", async () => {
+    dbState.analysis = {
+      ...dbState.analysis!,
+      status: "completed",
+      yearsAnalyzed: 4,
+      pdfFilePath: "study-guide-42.pdf",
+      aiResponseJson: {
+        subject: "Business Communication",
+        years_analyzed: ["Paper 1", "Paper 2", "Paper 3", "Paper 4"],
+        topics: [
+          {
+            topic_name: "Incomplete persisted topic",
+            priority: "High",
+            frequency: 2,
+            years_appeared: ["Paper 1"],
+            confidence_level: "High",
+            marks_weightage: "5 marks",
+            study_note: {
+              kya_padhna_hai: "Revise the named concept.",
+              kaise_poochha_jaata_hai: "Short answer.",
+              repeat_pattern: "Repeated once.",
+            },
+            paper_question_evidence: [
+              { paper: "Paper 1", evidence: "Discuss the named concept" },
+            ],
+          },
+        ],
+        related_topic_pairs: [],
+        overall_strategy_tip: "Bas Pass Hona Hai: revise the named concept.",
+      },
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+
+    expect(res.status).toBe(200);
+    expect(res.body.degraded).toBe(true);
+    expect(res.body.qualityIssues).toContain(
+      "Some topic details were incomplete in the original AI response and were safely recovered.",
+    );
+    expect(res.body.aiResponse.topics[0].question_type_breakdown).toEqual({
+      mcq: "Not specified",
+      short: "Not specified",
+      long: "Not specified",
+      case_study: "Not specified",
+    });
+    expect(res.body.aiResponse.topics[0].key_terms).toEqual([]);
   });
 
   it("returns an allowlisted file-storage failure message", async () => {
@@ -885,8 +1175,9 @@ describe("POST /api/analyses/:id/retry", () => {
 
     const res = await request(app).post("/api/analyses/42/retry");
     expect(res.status).toBe(402);
-    // Status transition + status revert — credit deduction is now via db.execute, not db.update
-    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(2);
+    // The claim and multi-credit deduction share a transaction, so the real
+    // database rolls the claim back when the deduction fails midway.
+    expect(vi.mocked(db.update)).toHaveBeenCalledTimes(1);
   });
 });
 
