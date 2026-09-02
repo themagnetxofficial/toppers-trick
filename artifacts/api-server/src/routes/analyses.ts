@@ -610,8 +610,7 @@ export async function processAnalysis(
     );
 
     const shouldStoreTemporaryOcrDiagnostic =
-      (failureStage === "text_extraction" || failureStage === "ai_analysis") &&
-      !(err instanceof AnalysisProcessingError);
+      failureStage === "text_extraction" && !(err instanceof AnalysisProcessingError);
     const getPersistedFailureMessage = (refundState: "pending" | "confirmed" | "unconfirmed") =>
       shouldStoreTemporaryOcrDiagnostic
         ? getTemporaryOcrDiagnosticMessage(err, refundState)
