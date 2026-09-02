@@ -7,7 +7,6 @@ Write a genuine, clear description of what the app does: an AI-powered study too
 Include:
 - A support email address (use a placeholder like support@[ourdomain].com — I'll provide the real one)
 - A simple contact form (Name, Email, Subject, Message) that sends submissions to that support email
-- Business/registered address (I'll provide this — use a placeholder for now: "[Business Address]")
 - Response time expectation (e.g., "We typically respond within 24-48 hours")
 
 ## 3. Terms & Conditions page

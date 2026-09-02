@@ -31,7 +31,7 @@ export default function ContactPage() {
       if (!res.ok) throw new Error("Failed to send");
       setSubmitted(true);
     } catch {
-      setError("Failed to send message. Please email us directly at support@smartstudy.app");
+       setError("Failed to send message. Please email us directly at themagnetxofficial@gmail.com");
     }
     setSending(false);
   }
@@ -57,10 +57,10 @@ export default function ContactPage() {
               <div>
                 <p className="font-semibold">Email Support</p>
                 <a
-                  href="mailto:support@smartstudy.app"
+                   href="mailto:themagnetxofficial@gmail.com"
                   className="text-primary hover:underline text-sm"
                 >
-                  support@smartstudy.app
+                   themagnetxofficial@gmail.com
                 </a>
                 <p className="text-xs text-muted-foreground mt-1">
                   Best for account issues, billing, and feedback
@@ -80,15 +80,6 @@ export default function ContactPage() {
               </div>
             </div>
 
-            <div className="bg-card border border-border rounded-2xl p-6 flex gap-4">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <MapPin className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="font-semibold">Registered Address</p>
-                <p className="text-sm text-muted-foreground mt-1">[Business Address]</p>
-              </div>
-            </div>
           </div>
 
           {/* Contact form */}

@@ -105,13 +105,13 @@ export default function PrivacyPage() {
               <p>As a user of ToppersTrick, you have the following rights:</p>
               <ul className="list-disc list-inside space-y-1 pl-2">
                 <li><strong className="text-foreground">Access:</strong> You can access your account data, analysis history, and credit balance at any time through the platform.</li>
-                <li><strong className="text-foreground">Deletion:</strong> You can request deletion of your account and all associated data by contacting us at <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>.</li>
+                <li><strong className="text-foreground">Deletion:</strong> You can request deletion of your account and all associated data by contacting us at <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>.</li>
                 <li><strong className="text-foreground">Correction:</strong> You can update your profile information through your account settings at any time.</li>
                 <li><strong className="text-foreground">Data portability:</strong> You may request a copy of your data by contacting our support team.</li>
               </ul>
               <p>
                 To exercise any of these rights, please email us at{" "}
-                <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>. 
+                <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>.
                 We will respond within 30 days.
               </p>
             </Section>
@@ -167,9 +167,7 @@ export default function PrivacyPage() {
               </p>
               <p>
                 <strong className="text-foreground">Email:</strong>{" "}
-                <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>
-                <br />
-                <strong className="text-foreground">Address:</strong> [Business Address]
+                 <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>
               </p>
             </Section>
           </div>
