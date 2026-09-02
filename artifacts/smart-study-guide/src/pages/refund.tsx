@@ -47,7 +47,7 @@ export default function RefundPage() {
               </p>
               <ul className="list-disc list-inside space-y-1 pl-2">
                 <li>Contact us within <strong className="text-foreground">7 days</strong> of the payment date.</li>
-                <li>Email us at <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a> with your registered email address and the Razorpay payment ID (found in your payment confirmation email).</li>
+                 <li>Email us at <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a> with your registered email address and the Razorpay payment ID (found in your payment confirmation email).</li>
                 <li>We will investigate and either credit your account or process a full refund within <strong className="text-foreground">5–7 business days</strong>.</li>
               </ul>
             </Section>
@@ -82,7 +82,7 @@ export default function RefundPage() {
               </p>
               <p>
                 If you wish to delete your account entirely, please contact us at{" "}
-                <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>. 
+                 <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>.
                 Note that account deletion is permanent, and any unused credits will be forfeited without refund.
               </p>
             </Section>
@@ -92,7 +92,7 @@ export default function RefundPage() {
             <Section title="6. How to Request a Refund">
               <p>If you believe you are eligible for a refund based on the criteria above, please follow this process:</p>
               <ol className="list-decimal list-inside space-y-1 pl-2">
-                <li>Visit our <Link href="/contact" className="text-primary hover:underline">Contact Us</Link> page or email <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>.</li>
+                 <li>Visit our <Link href="/contact" className="text-primary hover:underline">Contact Us</Link> page or email <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>.</li>
                 <li>Use the subject line: <em>"Refund Request — [your registered email]"</em>.</li>
                 <li>Include your Razorpay payment ID and a brief description of the issue.</li>
                 <li>Our support team will review your request and respond within 48 business hours.</li>
@@ -117,7 +117,7 @@ export default function RefundPage() {
               </p>
               <p>
                 <strong className="text-foreground">Email:</strong>{" "}
-                <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>
+                 <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>
                 <br />
                 <strong className="text-foreground">Response time:</strong> We typically respond within 24–48 hours on business days.
               </p>

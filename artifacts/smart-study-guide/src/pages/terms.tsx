@@ -117,7 +117,7 @@ export default function TermsPage() {
               </p>
               <p>
                 You may also delete your account at any time by contacting us at{" "}
-                <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a>. 
+                 <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>.
                 Upon deletion, your analysis history and uploaded files will be removed from our systems. Unused credits 
                 are forfeited upon account deletion.
               </p>
@@ -161,7 +161,7 @@ export default function TermsPage() {
             <Section title="11. Contact">
               <p>
                 For any questions about these Terms, please contact us at{" "}
-                <a href="mailto:support@smartstudy.app" className="text-primary hover:underline">support@smartstudy.app</a> 
+                 <a href="mailto:themagnetxofficial@gmail.com" className="text-primary hover:underline">themagnetxofficial@gmail.com</a>
                 {" "}or visit our{" "}
                 <a href="/contact" className="text-primary hover:underline">Contact Us</a> page.
               </p>
