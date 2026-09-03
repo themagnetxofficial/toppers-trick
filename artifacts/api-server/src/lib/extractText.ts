@@ -143,8 +143,9 @@ async function transcribeScannedPdfWithVision(
           batchSize: 2,
           onImageComplete: () => {
             completedPages += 1;
+            const completedPageCount = completedPages;
             progressChain = progressChain.then(() =>
-              onPageComplete(completedPages, pages.length),
+              onPageComplete(completedPageCount, pages.length),
             );
             return progressChain;
           },

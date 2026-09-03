@@ -208,6 +208,42 @@ describe("vision extraction fallback", () => {
     });
   });
 
+  it("serializes page progress with monotonic counts when vision finishes out of order", async () => {
+    const filePath = makeTemporaryFile(".pdf");
+    getInfo.mockResolvedValueOnce({ total: 3 });
+    const progress: Array<[number, number]> = [];
+
+    transcribeImagesWithVision.mockImplementationOnce(
+      async (
+        images: Array<unknown>,
+        options: {
+          onImageComplete?: (image: unknown) => void | Promise<void>;
+        },
+      ) => {
+        // Page 2 finishes first, followed by pages 1 and 3. The persisted
+        // progress still needs to advance in the order completions are seen.
+        const pageTwo = options.onImageComplete?.(images[1]);
+        const pageOne = options.onImageComplete?.(images[0]);
+        const pageThree = options.onImageComplete?.(images[2]);
+        await Promise.all([pageTwo, pageOne, pageThree]);
+        return "Question 1: Explain photosynthesis.";
+      },
+    );
+
+    await expect(
+      extractTextFromFile(filePath, async (current, total) => {
+        progress.push([current, total]);
+        await Promise.resolve();
+      }),
+    ).resolves.toContain("photosynthesis");
+
+    expect(progress).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+  });
+
   it.each([".jpg", ".png"] as const)(
     "sends uploaded %s files directly to vision",
     async (extension) => {
