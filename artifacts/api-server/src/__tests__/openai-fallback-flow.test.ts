@@ -180,7 +180,7 @@ describe("hard-capped compact repair flow", () => {
 
     const patchRequest = createCompletion.mock.calls[1][0];
     expect(patchRequest.model).toBe("gpt-5-mini");
-    expect(patchRequest.max_completion_tokens).toBe(20000);
+    expect(patchRequest.max_completion_tokens).toBe(28000);
     expect(patchRequest.reasoning_effort).toBe("low");
     expect(patchRequest.max_tokens).toBeUndefined();
     expect(patchRequest.messages[1].content).toContain(
@@ -566,7 +566,7 @@ describe("hard-capped compact repair flow", () => {
 
     expect(createCompletion).toHaveBeenCalledTimes(2);
     expect(createCompletion.mock.calls[1]![0].model).toBe("gpt-5-mini");
-    expect(createCompletion.mock.calls[1]![0].max_completion_tokens).toBe(20000);
+    expect(createCompletion.mock.calls[1]![0].max_completion_tokens).toBe(28000);
     expect(createCompletion.mock.calls[1]![0].reasoning_effort).toBe("low");
     expect(output.degraded).toBe(true);
     expect(output.qualityIssues.length).toBeGreaterThan(0);

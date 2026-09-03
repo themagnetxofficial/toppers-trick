@@ -6,6 +6,8 @@
 - [Hostinger build environment](hostinger-build-environment.md) — pnpm is available to install dependencies but absent from the application build command PATH.
 - [Vision transcription for scanned papers](portable-scanned-pdf-ocr.md) — scans use sequential OpenAI vision after in-process PDF rendering; no Poppler or Tesseract.
 - [Build worker limits](replit-build-worker-limits.md) — stale pnpm bootstrap workers can exhaust local process slots and make Vite/esbuild appear broken.
+- [Workspace typecheck declarations](workspace-typecheck-declarations.md) — rebuild the database package declarations when API typecheck resolves stale schema fields.
+- [Clerk keys by environment](clerk-keys-by-environment.md) — preview must use test keys; production uses live keys, with Vite exposing only an explicit client allowlist.
 - [Multi-paper AI coverage](multi-paper-ai-coverage.md) — never truncate a combined paper corpus; preserve a labeled, bounded input block for every upload.
 - [Analysis quality fallback](analysis-topic-quality-fallback.md) — after the two-call cap, return a valid imperfect result as degraded instead of failing and refunding.
 - [AI repair schema validation](ai-repair-schema-validation.md) — validate compact repair topics before merging or persisting them

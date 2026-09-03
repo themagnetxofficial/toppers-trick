@@ -3,11 +3,9 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import multer from "multer";
 import { clerkMiddleware } from "@clerk/express";
-import { publishableKeyFromHost } from "@clerk/shared/keys";
 import {
   CLERK_PROXY_PATH,
   clerkProxyMiddleware,
-  getClerkProxyHost,
 } from "./middlewares/clerkProxyMiddleware";
 import { logger } from "./lib/logger";
 import router from "./routes";
@@ -47,11 +45,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
+  clerkMiddleware(() => ({
+    publishableKey:
+      process.env.NODE_ENV === "production"
+        ? process.env.CLERK_PUBLISHABLE_KEY
+        : process.env.VITE_CLERK_TEST_PUBLISHABLE_KEY,
+    secretKey:
+      process.env.NODE_ENV === "production"
+        ? process.env.CLERK_SECRET_KEY
+        : process.env.CLERK_TEST_SECRET_KEY,
   })),
 );
 

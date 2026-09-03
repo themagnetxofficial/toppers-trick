@@ -1,0 +1,27 @@
+I need to update pricing across the entire app: change ₹69 to ₹89, and ₹129 to ₹169. These are likely credit-pack prices (e.g., a 5-credit pack and a larger pack). This must be updated consistently in BOTH the frontend display AND the backend payment/order-creation logic, since a mismatch between what's shown to the user and what's actually charged via Razorpay would be a serious bug.
+
+STEP 1 — Find every reference
+Search the entire repository (both artifacts/smart-study-guide/src and artifacts/api-server/src, excluding node_modules, dist, build output, and test files) for:
+- The literal values 69 and 129 (in various forms: "69", "₹69", "6900" if stored in paise, "129", "₹129", "12900" if stored in paise — check both rupee and paise representations since Razorpay amounts are typically in paise/smallest-currency-unit).
+- Any pricing-config file, constants file, or credit-pack definition (e.g., something like `PRICING_PLANS`, `CREDIT_PACKS`, or similar) that defines these amounts alongside credit-counts.
+
+Report every file and line where these values appear, and show enough surrounding context to understand whether each occurrence is: (a) a display-only price shown in the UI, (b) the actual amount used when creating a Razorpay order/payment on the backend, or (c) something unrelated that happens to contain these numbers (e.g., an unrelated ID or test fixture) — do NOT change unrelated occurrences.
+
+STEP 2 — Update consistently
+For every confirmed pricing-related occurrence:
+- Change 69 → 89 (and its paise equivalent 6900 → 8900, if amounts are stored in paise)
+- Change 129 → 169 (and its paise equivalent 12900 → 16900, if amounts are stored in paise)
+
+Make sure the frontend display price and the backend Razorpay order-amount for the SAME credit pack end up matching exactly after the change.
+
+Do NOT change the credit counts themselves (e.g., if one pack gives 5 credits, it should still give 5 credits — only the price changes). Do NOT touch any analysis, extraction, or AI-related logic — this is a pricing-only change.
+
+STEP 3 — Verify
+After making changes, re-search for "69" and "129" (and their paise equivalents) to confirm no pricing-related occurrence was missed, and confirm no unrelated code was accidentally changed.
+
+Run frontend and backend typecheck/build to confirm nothing broke.
+
+Report:
+- Full list of files changed and what was changed in each
+- Confirmation that frontend display and backend charge amounts match for each pack
+- Build/typecheck results

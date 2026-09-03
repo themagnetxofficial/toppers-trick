@@ -265,6 +265,7 @@ vi.mock("../lib/extractText", () => ({
 import app from "../app";
 import { processAnalysis } from "../routes/analyses";
 import {
+  AnalysisProcessingError,
   getAnalysisFailureMessageWithRefund,
   getTemporaryOcrDiagnosticMessage,
 } from "../lib/analysisFailure";
@@ -486,6 +487,153 @@ describe("POST /api/analyses", () => {
 // ---------------------------------------------------------------------------
 
 describe("background analysis diagnostics", () => {
+  it("persists text extraction, AI analysis, and PDF-generation stages in order", async () => {
+    const { db } = await import("@workspace/db");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const paper = path.join(uploadsDir, "progress-stage-transitions.pdf");
+    fs.writeFileSync(paper, "%PDF-1.4 test");
+    vi.mocked(db.update).mockClear();
+    vi.mocked(extractTextFromFilesWithLabels).mockImplementationOnce(
+      async (
+        _filePaths,
+        options: {
+          onProgress?: (progress: {
+            fileIndex: number;
+            fileCount: number;
+            fileName: string;
+            current: number;
+            total: number;
+          }) => void | Promise<void>;
+        },
+      ) => {
+        await options.onProgress?.({
+          fileIndex: 0,
+          fileCount: 1,
+          fileName: path.basename(paper),
+          current: 1,
+          total: 3,
+        });
+        return {
+          text: "--- Year: Paper 1 ---\n\nQuestion 1: Describe Newton's laws (10 marks)",
+          yearLabels: ["Paper 1"],
+          papers: [
+            {
+              label: "Paper 1",
+              text: "Question 1: Describe Newton's laws and explain their applications (10 marks)",
+            },
+          ],
+          extractedCharacterCount: 79,
+        };
+      },
+    );
+
+    await processAnalysis(102, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [paper],
+      userId: 1,
+    });
+
+    const updateSets = vi.mocked(db.update).mock.results.map((result) => {
+      const chain = result.value as { set: ReturnType<typeof vi.fn> };
+      return chain.set.mock.calls[0]?.[0];
+    });
+
+    expect(updateSets[0]).toEqual({
+      processingStage: "text_extraction",
+      processingCurrent: 1,
+      processingTotal: 3,
+    });
+    expect(updateSets[1]).toEqual({
+      processingStage: "ai_analysis",
+      processingCurrent: null,
+      processingTotal: null,
+    });
+    expect(updateSets[2]).toEqual({ yearsAnalyzed: 1 });
+    expect(updateSets[3]).toEqual({
+      processingStage: "pdf_generation",
+      processingCurrent: null,
+      processingTotal: null,
+    });
+    expect(updateSets[4]).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        processingStage: null,
+        processingCurrent: null,
+        processingTotal: null,
+      }),
+    );
+  });
+
+  it("refunds failed OCR without reporting the failed page as complete", async () => {
+    const { db } = await import("@workspace/db");
+    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
+    const paper = path.join(uploadsDir, "progress-failed-page.pdf");
+    const extractionError = new AnalysisProcessingError(
+      "text_extraction",
+      "OCR failed on page 2",
+    );
+    fs.writeFileSync(paper, "%PDF-1.4 test");
+    vi.mocked(db.update).mockClear();
+    vi.mocked(extractTextFromFilesWithLabels).mockImplementationOnce(
+      async (
+        _filePaths,
+        options: {
+          onProgress?: (progress: {
+            fileIndex: number;
+            fileCount: number;
+            fileName: string;
+            current: number;
+            total: number;
+          }) => void | Promise<void>;
+        },
+      ) => {
+        // Page 1 completed, but page 2 failed before it could report
+        // completion. This mirrors concurrent OCR finishing with one reject.
+        await options.onProgress?.({
+          fileIndex: 0,
+          fileCount: 1,
+          fileName: path.basename(paper),
+          current: 1,
+          total: 2,
+        });
+        throw extractionError;
+      },
+    );
+
+    await processAnalysis(103, {
+      category: "school",
+      classOrCourse: "12th",
+      boardOrUniversity: "CBSE",
+      subject: "Physics",
+      filePaths: [paper],
+      userId: 1,
+    });
+
+    const updateSets = vi.mocked(db.update).mock.results.map((result) => {
+      const chain = result.value as { set: ReturnType<typeof vi.fn> };
+      return chain.set.mock.calls[0]?.[0];
+    });
+
+    expect(updateSets[0]).toEqual({
+      processingStage: "text_extraction",
+      processingCurrent: 1,
+      processingTotal: 2,
+    });
+    expect(updateSets).not.toContainEqual(
+      expect.objectContaining({ processingCurrent: 2 }),
+    );
+    expect(updateSets[1]).toEqual({
+      status: "failed",
+      errorMessage: getAnalysisFailureMessageWithRefund("text_extraction", "pending"),
+    });
+    expect(updateSets[2]).toEqual({
+      errorMessage: getAnalysisFailureMessageWithRefund("text_extraction", "confirmed"),
+    });
+  });
+
   it("fails safely instead of completing an analysis when one paper has no extracted text", async () => {
     const { db } = await import("@workspace/db");
     const { extractTextFromFilesWithLabels } = await import("../lib/extractText");

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { ClerkProvider, SignIn, SignUp, Show, useClerk, useUser } from '@clerk/react';
-import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from 'wouter';
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
@@ -27,13 +26,13 @@ import { AdminArea } from "./pages/admin/index";
 import BlogListingPage from "./pages/blog/index";
 import BlogPostPage from "./pages/blog/post";
 
+declare const __CLERK_PUBLISHABLE_KEY__: string;
+
 const queryClient = new QueryClient();
 
-// REQUIRED — copy verbatim. Resolves the key from window.location.hostname
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
+// Vite injects exactly one environment-appropriate Clerk key. This keeps the
+// development key out of production assets and the live key out of preview.
+const clerkPubKey = __CLERK_PUBLISHABLE_KEY__;
 
 // REQUIRED — copy verbatim. Empty in dev, auto-set in prod.
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;

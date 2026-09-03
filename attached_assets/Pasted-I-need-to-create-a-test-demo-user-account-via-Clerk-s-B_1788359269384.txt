@@ -1,0 +1,31 @@
+I need to create a test/demo user account via Clerk's Backend API for Razorpay's approval review process. This account should be created directly through the Backend API (not the normal signup flow) so the email is pre-verified and no OTP step is required.
+
+Please do the following:
+
+1. Check if `@clerk/backend` (or similar Clerk Node SDK) is already a dependency in this project. If yes, use it. If not, use a plain `fetch`/`curl`-based call to Clerk's REST API instead — do not add a new permanent dependency just for this one-time task.
+
+2. Write and run a SMALL, TEMPORARY Node.js script (not committed to the repo, just run once via `node` in the shell and then deleted) that calls Clerk's Backend API to create a user:
+
+   POST https://api.clerk.com/v1/users
+   Headers: Authorization: Bearer <CLERK_SECRET_KEY from env>, Content-Type: application/json
+   Body:
+   {
+     "email_address": ["test@topperstrick.com"],
+     "password": "TopperTrick@Test2026",
+     "first_name": "Test",
+     "skip_password_checks": true
+   }
+
+   (Read CLERK_SECRET_KEY from the existing environment variable — do not hardcode it or print its value in any output.)
+
+3. Report back the API response — specifically confirm:
+   - The user was created successfully (look for a "id" field in the response)
+   - The email_addresses[0].verification.status in the response (should ideally show "verified" or be automatically treated as verified since it's a backend-created user)
+
+4. If the account should also have a few free credits so the Razorpay reviewer can browse without immediately being blocked, check how new-user free credits are granted in this codebase (likely via a webhook or on-first-login trigger) and confirm whether this backend-created user will receive them automatically, or whether a manual credit_batches insert is needed to match the normal free-signup experience. Do NOT grant more than the standard free-signup amount — just match what a normal new user gets.
+
+5. Delete the temporary script file after running it — do not leave it in the repository.
+
+6. Confirm at the end: the account's email is `test@topperstrick.com` and confirm the password is exactly `TopperTrick@Test2026` (or state clearly what login credentials the account has), so I can pass these to Razorpay.
+
+Do not modify any other part of the app's logic, routes, or database schema — this is a one-time administrative action to create a single test account.

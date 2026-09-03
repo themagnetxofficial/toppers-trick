@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS "analyses" (
 CREATE TABLE IF NOT EXISTS "payments" (
   "id"                   SERIAL PRIMARY KEY,
   "user_id"              INTEGER NOT NULL REFERENCES "users"("id"),
-  "amount"               INTEGER NOT NULL,           -- in paise (₹69 = 6900)
+  "amount"               INTEGER NOT NULL,           -- in paise (₹89 = 8900)
   "razorpay_order_id"    TEXT,
   "razorpay_payment_id"  TEXT,
   "package_name"         TEXT,                       -- 'starter' | 'value'
