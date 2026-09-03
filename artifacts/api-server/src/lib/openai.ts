@@ -1448,7 +1448,7 @@ Rules:
     params.analysisModel ?? getAnalysisModelForPaperCount(params.yearLabels.length);
   const initialTokenLimit =
     initialModel === "gpt-5-mini"
-      ? { max_completion_tokens: 20000, reasoning_effort: "low" as const }
+      ? { max_completion_tokens: 28000, reasoning_effort: "low" as const }
       : { max_tokens: 12000 };
   const paperContent = buildPaperPromptContent(
     params.papers,
