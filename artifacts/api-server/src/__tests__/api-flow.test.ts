@@ -825,11 +825,11 @@ describe("background analysis diagnostics", () => {
     expect(updatePayloads).toContainEqual(
       expect.objectContaining({
         status: "failed",
-        errorMessage: getTemporaryOcrDiagnosticMessage(qualityError, "pending"),
+        errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "pending"),
       }),
     );
     expect(updatePayloads.at(-1)).toEqual({
-      errorMessage: getTemporaryOcrDiagnosticMessage(qualityError, "confirmed"),
+      errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "confirmed"),
     });
     expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(2);
 
