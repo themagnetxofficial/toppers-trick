@@ -26,11 +26,13 @@ import { AdminArea } from "./pages/admin/index";
 import BlogListingPage from "./pages/blog/index";
 import BlogPostPage from "./pages/blog/post";
 
+declare const __CLERK_PUBLISHABLE_KEY__: string;
+
 const queryClient = new QueryClient();
 
-// Use the configured Clerk instance directly. Deriving a live key from the
-// Replit preview hostname points Clerk JS at a nonexistent clerk.<preview> host.
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+// Vite injects exactly one environment-appropriate Clerk key. This keeps the
+// development key out of production assets and the live key out of preview.
+const clerkPubKey = __CLERK_PUBLISHABLE_KEY__;
 
 // REQUIRED — copy verbatim. Empty in dev, auto-set in prod.
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;

@@ -46,7 +46,14 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   clerkMiddleware(() => ({
-    publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+    publishableKey:
+      process.env.NODE_ENV === "production"
+        ? process.env.CLERK_PUBLISHABLE_KEY
+        : process.env.VITE_CLERK_TEST_PUBLISHABLE_KEY,
+    secretKey:
+      process.env.NODE_ENV === "production"
+        ? process.env.CLERK_SECRET_KEY
+        : process.env.CLERK_TEST_SECRET_KEY,
   })),
 );
 
