@@ -152,7 +152,7 @@ export default function LandingPage() {
                 <div>
                   <h3 className="text-xl font-bold font-serif mb-1">Starter Pack</h3>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold">₹69</span>
+                    <span className="text-4xl font-bold">₹89</span>
                     <span className="text-muted-foreground text-sm">/ pack</span>
                   </div>
                   <p className="text-muted-foreground text-sm mt-1">5 AI paper analyses.</p>
@@ -174,7 +174,7 @@ export default function LandingPage() {
                 </ul>
                 <Link href="/sign-up" className="block">
                   <Button variant="outline" className="w-full h-11 rounded-xl font-bold border-primary text-primary hover:bg-primary/5">
-                    Buy for ₹69
+                    Buy for ₹89
                   </Button>
                 </Link>
               </div>
@@ -187,7 +187,7 @@ export default function LandingPage() {
                 <div>
                   <h3 className="text-xl font-bold font-serif mb-1">Value Pack</h3>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold">₹129</span>
+                    <span className="text-4xl font-bold">₹169</span>
                     <span className="text-muted-foreground text-sm">/ pack</span>
                   </div>
                   <p className="text-muted-foreground text-sm mt-1">10 AI paper analyses.</p>
@@ -210,7 +210,7 @@ export default function LandingPage() {
                 </ul>
                 <Link href="/sign-up" className="block">
                   <Button className="w-full h-11 rounded-xl font-bold shadow-md shadow-primary/20">
-                    Buy for ₹129
+                    Buy for ₹169
                   </Button>
                 </Link>
               </div>

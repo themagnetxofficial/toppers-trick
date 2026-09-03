@@ -13,7 +13,7 @@ function exportCsv(payments: AdminPayment[]) {
     p.id,
     new Date(p.createdAt).toLocaleDateString("en-IN"),
     p.userEmail ?? "",
-    p.packageName ?? (p.amount === 6900 ? "starter" : "value"),
+    p.packageName ?? (p.amount === 6900 || p.amount === 8900 ? "starter" : "value"),
     (p.amount / 100).toFixed(2),
     p.razorpayPaymentId ?? "",
     p.status,
@@ -102,7 +102,13 @@ export default function AdminPayments() {
                       <div className="text-sm">{p.userEmail ?? p.userName ?? `User #${p.userId}`}</div>
                     </td>
                     <td className="px-4 py-3 capitalize text-sm">
-                      {p.packageName ?? (p.amount === 6900 ? "Starter" : p.amount === 12900 ? "Value" : "—")}
+                      {p.packageName ?? (
+                        p.amount === 6900 || p.amount === 8900
+                          ? "Starter"
+                          : p.amount === 12900 || p.amount === 16900
+                            ? "Value"
+                            : "—"
+                      )}
                     </td>
                     <td className="px-4 py-3 font-semibold">₹{(p.amount / 100).toFixed(0)}</td>
                     <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{p.razorpayPaymentId ?? "—"}</td>

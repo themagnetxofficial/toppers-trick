@@ -148,7 +148,7 @@ export default function AdminUserDetail() {
               {payments.map(p => (
                 <tr key={p.id}>
                   <td className="py-2 pr-4 text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString("en-IN")}</td>
-                  <td className="py-2 pr-4 capitalize">{p.packageName ?? (p.amount === 6900 ? "Starter" : "Value")}</td>
+                  <td className="py-2 pr-4 capitalize">{p.packageName ?? (p.amount === 6900 || p.amount === 8900 ? "Starter" : "Value")}</td>
                   <td className="py-2 pr-4">₹{p.amount / 100}</td>
                   <td className="py-2 pr-4 text-xs font-mono text-muted-foreground">{p.razorpayPaymentId ?? "—"}</td>
                   <td className="py-2"><Badge variant={p.status === "success" ? "default" : "secondary"} className="text-xs">{p.status}</Badge></td>

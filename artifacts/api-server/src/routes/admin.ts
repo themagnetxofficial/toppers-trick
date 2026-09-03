@@ -68,8 +68,8 @@ router.get("/admin/stats", async (_req, res): Promise<void> => {
 
     const [packStats] = await sq<{ starter: string; value_pack: string }>(sql`
       SELECT
-        sum(case when amount = 6900 then 1 else 0 end)::text as starter,
-        sum(case when amount = 12900 then 1 else 0 end)::text as value_pack
+        sum(case when amount in (6900, 8900) then 1 else 0 end)::text as starter,
+        sum(case when amount in (12900, 16900) then 1 else 0 end)::text as value_pack
       FROM payments WHERE status = 'success'
     `);
 

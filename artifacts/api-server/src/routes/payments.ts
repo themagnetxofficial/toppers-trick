@@ -17,18 +17,23 @@ const router: IRouter = Router();
 
 // Available credit packages
 const PACKAGES = {
-  starter: { amountPaise: 6900,  credits: 5,  label: "Starter Pack — 5 Analyses" },
-  value:   { amountPaise: 12900, credits: 10, label: "Value Pack — 10 Analyses"  },
+  starter: { amountPaise: 8900,  credits: 5,  label: "Starter Pack — 5 Analyses" },
+  value:   { amountPaise: 16900, credits: 10, label: "Value Pack — 10 Analyses"  },
 } as const;
 
 type PackageId = keyof typeof PACKAGES;
+
+const LEGACY_CREDITS_BY_AMOUNT = new Map([
+  [6900, 5],
+  [12900, 10],
+]);
 
 /** Derive credits from a stored amount (paise). Defaults to 10 for legacy records. */
 function creditsForAmount(amountPaise: number): number {
   for (const pkg of Object.values(PACKAGES)) {
     if (pkg.amountPaise === amountPaise) return pkg.credits;
   }
-  return 10; // fallback for pre-existing ₹129 records
+  return LEGACY_CREDITS_BY_AMOUNT.get(amountPaise) ?? 10;
 }
 
 async function getRazorpay() {
@@ -123,7 +128,7 @@ router.post(
       .limit(1)
       .then((rows) => rows[0]);
 
-    const creditsToAward = creditsForAmount(paymentRow?.amount ?? 12900);
+    const creditsToAward = creditsForAmount(paymentRow?.amount ?? PACKAGES.value.amountPaise);
 
     // Mark payment as successful
     await db
