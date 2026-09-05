@@ -281,6 +281,32 @@ describe("hard-capped compact repair flow", () => {
     );
   });
 
+  it("coerces recoverable topic type mismatches before strict validation", async () => {
+    const initial = makeResult(18);
+    for (const topic of initial.topics) {
+      topic.priority = "high" as TopicResult["priority"];
+      topic.confidence_level = "medium" as TopicResult["confidence_level"];
+      topic.frequency = "3" as unknown as number;
+    }
+    createCompletion.mockResolvedValueOnce(completion(initial, 100));
+
+    const output = await runAnalysis();
+
+    expect(createCompletion).toHaveBeenCalledTimes(1);
+    expect(output.result.topics).toHaveLength(18);
+    expect(output.result.topics[0]).toEqual(
+      expect.objectContaining({
+        priority: "High",
+        confidence_level: "Medium",
+        frequency: 3,
+      }),
+    );
+    expect(output.degraded).toBe(true);
+    expect(output.qualityIssues).toContain(
+      "Recovered missing non-grounding metadata for 18 initial topic entries while preserving strict evidence and study-note validation.",
+    );
+  });
+
   it("recovers missing non-grounding metadata from the single repair response", async () => {
     const initial = makeResult(2);
     for (const topic of initial.topics) {

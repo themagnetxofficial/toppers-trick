@@ -1,0 +1,15 @@
+CRITICAL INVESTIGATION: A third distinct failure mode found. Error: "The analysis response did not include any usable topics." This comes from validateAiAnalysisResult's SCHEMA-completeness filter (isCompleteTopicResult), which runs VERY early — right after the initial JSON parse, BEFORE the repair call ever gets a chance to run.
+
+This filter requires EVERY field on a topic to be structurally perfect: priority/confidence_level must be exactly "High"/"Medium"/"Low" (case-sensitive), frequency must be a finite number (not a numeric string), years_appeared/key_terms must be proper string arrays, question_type_breakdown must have all 4 string fields, study_note must have all 3 string fields present. If the AI's JSON output has even minor type-quirks (e.g., "high" instead of "High", frequency as "3" instead of 3) on EVERY topic in a given response, this filter zeroes out the entire topics array before repair ever runs — exactly the same "early-strict-gate-blocks-everything-before-repair-can-fix-it" pattern we already found and fixed for study-note-bullet-completeness.
+
+Please apply the same fix pattern here:
+1. Find isCompleteTopicResult and where it's used to filter result.topics in validateAiAnalysisResult (there should be an early call site right after initial parsing, and it may also run again after repair).
+2. Instead of strictly rejecting topics with minor type-mismatches at the EARLY (pre-repair) call, either:
+   a. Make the early check more lenient/coercive — normalize common type mismatches before validating (e.g., capitalize priority/confidence_level case-insensitively to match "High"/"Medium"/"Low", coerce numeric-string frequency to a number, default missing optional fields), so genuinely-recoverable topics survive into the repair stage, OR
+   b. If coercion is too risky, at minimum ensure the STRICT schema check only fully-rejects a topic at the FINAL (post-repair) validation call, not the early one — mirroring exactly how we handled the study-note-bullet-strictness fix.
+3. Do NOT weaken the FINAL validation — a topic must still be structurally complete and correct in the final returned result. This is purely about giving repair a chance to fix recoverable topics instead of the whole analysis failing immediately when schema quirks appear in the initial response.
+4. Do not change the system prompt, model selection, the catastrophic-quality-floor, or the two-call hard cap.
+
+After the fix, run the full test suite, and add a regression test confirming: a topic with a minor recoverable type-mismatch (e.g., priority as lowercase "high") does NOT cause the entire analysis to fail immediately — it either gets coerced/normalized, or survives to the repair stage, while the final result still enforces full schema correctness.
+
+Report clearly: (a) where exactly you found the early strict schema-filter being applied pre-repair, and (b) which fix approach (coercion vs. deferred-strictness) you implemented and why.

@@ -951,6 +951,31 @@ function isCompleteTopicResult(value: unknown): value is TopicResult {
   );
 }
 
+function normalizeTopicLevel(
+  value: unknown,
+): TopicResult["priority"] | undefined {
+  if (typeof value !== "string") return undefined;
+
+  switch (value.trim().toLowerCase()) {
+    case "high":
+      return "High";
+    case "medium":
+      return "Medium";
+    case "low":
+      return "Low";
+    default:
+      return undefined;
+  }
+}
+
+function normalizeFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function normalizeTopicSchemaMetadata(
   value: unknown,
   fallbackYears: string[],
@@ -969,25 +994,20 @@ function normalizeTopicSchemaMetadata(
   const yearsAppeared = isStringArray(value.years_appeared)
     ? value.years_appeared
     : [...new Set(evidencePapers)];
-  const frequency =
-    typeof value.frequency === "number" && Number.isFinite(value.frequency)
-      ? value.frequency
-      : yearsAppeared.length;
+  const frequency = normalizeFiniteNumber(value.frequency) ?? yearsAppeared.length;
+  const normalizedPriority = normalizeTopicLevel(value.priority);
   const priority =
-    value.priority === "High" ||
-    value.priority === "Medium" ||
-    value.priority === "Low"
-      ? value.priority
+    normalizedPriority
+      ? normalizedPriority
       : frequency >= 3
         ? "High"
         : frequency >= 2
           ? "Medium"
           : "Low";
+  const normalizedConfidenceLevel = normalizeTopicLevel(value.confidence_level);
   const confidenceLevel =
-    value.confidence_level === "High" ||
-    value.confidence_level === "Medium" ||
-    value.confidence_level === "Low"
-      ? value.confidence_level
+    normalizedConfidenceLevel
+      ? normalizedConfidenceLevel
       : frequency >= 3
         ? "High"
         : frequency >= 2
