@@ -14,3 +14,4 @@
 - [GitHub publishing recovery](github-publishing-recovery.md) — if the workspace Git HTTPS credential expires, use the connected GitHub API with a guarded branch update.
 - [Post-merge setup](post-merge-setup.md) — invoke the pinned pnpm explicitly and keep interactive/destructive schema pushes out of unattended hooks.
 - [Supabase schema operations](supabase-schema-ops.md) — the external database can lag Drizzle schema; prefer scoped additive updates when push detects unrelated interactive changes.
+- [Temporary analysis diagnostics](temporary-analysis-diagnostics.md) — temporary underlying-error storage is OCR-only; never extend it to AI analysis without explicit instruction.
