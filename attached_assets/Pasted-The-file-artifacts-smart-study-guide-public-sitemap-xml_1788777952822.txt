@@ -1,0 +1,13 @@
+The file artifacts/smart-study-guide/public/sitemap.xml exists and gets correctly copied to artifacts/smart-study-guide/dist/public/sitemap.xml during build (confirmed earlier). Hostinger has deployed this exact commit as "Current". Yet https://topperstrick.com/sitemap.xml still returns the SPA's index.html instead of the actual XML file content.
+
+This points to a server-side routing issue: the static-file-serving logic likely has a catch-all "serve index.html for any unmatched route" fallback (needed for client-side React Router to work on page refresh), and this catch-all appears to be intercepting the request for /sitemap.xml BEFORE checking whether an actual static file exists at that path.
+
+Please investigate:
+1. Find where the API server serves the built frontend as static files — likely in artifacts/api-server/src (search for something like express.static, serveStatic, or a catch-all "*" route that serves index.html).
+2. Determine the exact order of middleware/routes: is the static-file-serving middleware (which should serve real files like sitemap.xml, robots.txt, actual JS/CSS assets) registered BEFORE the SPA catch-all fallback that serves index.html for client-side routes? If the catch-all is intercepting requests for real files that exist on disk, that's the bug.
+3. If confirmed, fix the ordering/logic so that: requests matching an actual file on disk (like /sitemap.xml, /robots.txt) are served as that file, and ONLY requests that don't match any real file AND don't match an API route fall through to the SPA's index.html.
+4. Do not change how existing working static assets (JS/CSS bundles under /assets/) are served — only fix the specific gap that's causing root-level static files like sitemap.xml to be missed.
+5. After the fix, verify locally if possible (e.g., check the built dist output is correctly served) and report exactly what the routing bug was and how it was fixed.
+6. Run the full test suite to confirm nothing broke, and the production build.
+
+Report clearly what you found in the routing configuration before making changes.
