@@ -1,0 +1,26 @@
+The `users` table in production has NEVER captured user email/name — investigation earlier confirmed the JIT-provisioning code in artifacts/api-server/src/lib/auth.ts only stores `clerkUserId` on user creation, never fetching email/first_name/last_name from Clerk. This is now visibly broken in the admin panel (all 8 existing users show blank Name/Email).
+
+Please implement both a forward-fix and a one-time backfill.
+
+PART 1 — Forward-fix (new signups going forward)
+1. Find the JIT-provisioning code in artifacts/api-server/src/lib/auth.ts where new users are created with `.values({ clerkUserId })`.
+2. Before inserting, fetch the user's profile from Clerk's Backend API (GET https://api.clerk.com/v1/users/{clerkUserId}, using the existing CLERK_SECRET_KEY env var) to get their primary email address and first/last name.
+3. Store these in the insert: `.values({ clerkUserId, email: <fetched email>, name: <fetched first+last name or just first name> })`.
+4. Handle the case where the Clerk API call fails gracefully (e.g., network hiccup) — don't block user provisioning/login if this fetch fails; just leave email/name null and log a warning, so a failed fetch never breaks the actual login flow.
+5. This should be a single extra API call at account-creation time only (not on every login), to avoid adding latency/cost to every authenticated request.
+
+PART 2 — One-time backfill for existing users
+1. Write a small, temporary script (not committed to the repo, run once via `node` in the shell and then deleted) that:
+   - Queries the production `users` table for all rows where email IS NULL (using $SUPABASE_DATABASE_URL).
+   - For each one, calls Clerk's Backend API (GET https://api.clerk.com/v1/users/{clerkUserId}) to fetch their email and name.
+   - Updates that user's row in the database with the fetched email/name.
+   - Handle failures per-user gracefully (log and skip, don't abort the whole backfill for one bad row) — there are only 8 users currently so this should be quick.
+2. Report how many users were successfully backfilled and any that failed (with reason).
+3. Delete the temporary script after running it — confirm it's not left in the repository.
+
+PART 3 — Verification
+1. Run the full test suite and confirm nothing broke.
+2. Query the database afterward to confirm all 8 existing users now have email populated (or report which ones still don't and why).
+3. Do NOT modify credits, analyses, payment records, or any other user data — only email and name fields should change.
+
+Report clearly: which users were backfilled with what emails, and confirm the forward-fix is in place for future signups.
