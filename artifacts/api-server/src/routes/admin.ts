@@ -1,5 +1,5 @@
 import { Router, IRouter } from "express";
-import { eq, desc, and, gte, sql, ilike, or } from "drizzle-orm";
+import { eq, desc, and, gte, sql, ilike, or, isNull } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -11,6 +11,7 @@ import {
   contactSubmissionsTable,
 } from "@workspace/db";
 import { requireAdmin } from "../lib/adminAuth";
+import { fetchClerkUserProfile } from "../lib/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -207,6 +208,68 @@ router.get("/admin/users", async (req, res): Promise<void> => {
   } catch (err) {
     logger.error({ err }, "Admin users list error");
     res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+router.post("/admin/backfill-user-emails", async (_req, res): Promise<void> => {
+  try {
+    const usersMissingEmails = await db
+      .select({
+        id: usersTable.id,
+        clerkUserId: usersTable.clerkUserId,
+      })
+      .from(usersTable)
+      .where(isNull(usersTable.email));
+    const failures: Array<{ userId: number; reason: string }> = [];
+    let updated = 0;
+
+    for (const user of usersMissingEmails) {
+      const profile = await fetchClerkUserProfile(user.clerkUserId);
+      if (!profile.email) {
+        failures.push({
+          userId: user.id,
+          reason:
+            profile.failureReason ??
+            "No primary email address found in the Clerk profile",
+        });
+        continue;
+      }
+
+      try {
+        await db
+          .update(usersTable)
+          .set({ email: profile.email, name: profile.name })
+          .where(eq(usersTable.id, user.id));
+        updated += 1;
+      } catch (err) {
+        logger.warn(
+          { err, userId: user.id },
+          "Unable to backfill user profile from Clerk",
+        );
+        failures.push({
+          userId: user.id,
+          reason: "Unable to save the Clerk profile",
+        });
+      }
+    }
+
+    logger.info(
+      {
+        matched: usersMissingEmails.length,
+        updated,
+        failed: failures.length,
+      },
+      "Admin user email backfill completed",
+    );
+    res.json({
+      matched: usersMissingEmails.length,
+      updated,
+      failed: failures.length,
+      failures,
+    });
+  } catch (err) {
+    logger.error({ err }, "Admin user email backfill error");
+    res.status(500).json({ error: "Failed to backfill user emails" });
   }
 });
 

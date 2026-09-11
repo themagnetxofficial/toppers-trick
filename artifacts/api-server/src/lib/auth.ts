@@ -16,6 +16,7 @@ type ClerkEmailAddress = {
 type ClerkUserProfile = {
   email: string | null;
   name: string | null;
+  failureReason: string | null;
 };
 
 function asNonEmptyString(value: unknown): string | null {
@@ -37,7 +38,11 @@ export async function fetchClerkUserProfile(
       { clerkUserId },
       "Clerk secret key unavailable while provisioning user profile",
     );
-    return { email: null, name: null };
+    return {
+      email: null,
+      name: null,
+      failureReason: "Clerk secret key is unavailable",
+    };
   }
 
   try {
@@ -83,13 +88,18 @@ export async function fetchClerkUserProfile(
     return {
       email,
       name: nameParts.length > 0 ? nameParts.join(" ") : null,
+      failureReason: null,
     };
   } catch (err) {
     logger.warn(
       { err, clerkUserId },
       "Unable to fetch Clerk profile during user provisioning",
     );
-    return { email: null, name: null };
+    return {
+      email: null,
+      name: null,
+      failureReason: "Unable to fetch profile from Clerk",
+    };
   }
 }
 

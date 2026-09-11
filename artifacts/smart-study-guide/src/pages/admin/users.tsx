@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Search, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Search, ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
 
 function useDebounce<T>(value: T, delay = 400) {
   const [dv, setDv] = useState(value);
@@ -22,8 +23,10 @@ export default function AdminUsers() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [backfilling, setBackfilling] = useState(false);
   const dSearch = useDebounce(search);
   const pageSize = 25;
+  const { toast } = useToast();
 
   useEffect(() => {
     setLoading(true);
@@ -40,6 +43,29 @@ export default function AdminUsers() {
 
   const totalPages = Math.ceil(total / pageSize);
 
+  const handleBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const result = await adminApi.backfillMissingEmails();
+      toast({
+        title: "Email backfill complete",
+        description: `${result.updated} updated, ${result.failed} failed.`,
+        variant: result.failed > 0 ? "destructive" : "default",
+      });
+      const refreshed = await adminApi.getUsers(page, dSearch);
+      setUsers(refreshed.users);
+      setTotal(refreshed.total);
+    } catch (error) {
+      toast({
+        title: "Email backfill failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -47,6 +73,15 @@ export default function AdminUsers() {
           <h1 className="text-2xl font-bold font-serif">Users</h1>
           <p className="text-muted-foreground text-sm">{total.toLocaleString()} total users</p>
         </div>
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={handleBackfill}
+          disabled={backfilling}
+        >
+          <RefreshCw className={`h-4 w-4 ${backfilling ? "animate-spin" : ""}`} />
+          {backfilling ? "Backfilling…" : "Backfill missing emails"}
+        </Button>
       </div>
 
       <div className="relative">

@@ -39,6 +39,13 @@ export interface AdminUserDetail {
   analyses: { id: number; subject: string; category: string; status: string; createdAt: string }[];
 }
 
+export interface UserEmailBackfillResult {
+  matched: number;
+  updated: number;
+  failed: number;
+  failures: { userId: number; reason: string }[];
+}
+
 export interface AdminPayment {
   id: number; userId: number; amount: number; packageName: string | null;
   razorpayOrderId: string | null; razorpayPaymentId: string | null;
@@ -97,6 +104,10 @@ export const adminApi = {
     adminFetch<{ isSuspended: boolean }>(`/admin/users/${id}/suspend`, { method: "POST" }),
   toggleAdmin: (id: number) =>
     adminFetch<{ isAdmin: boolean }>(`/admin/users/${id}/admin`, { method: "POST" }),
+  backfillMissingEmails: () =>
+    adminFetch<UserEmailBackfillResult>("/admin/backfill-user-emails", {
+      method: "POST",
+    }),
 
   // Payments
   getPayments: (params?: { status?: string; from?: string; to?: string }) =>
