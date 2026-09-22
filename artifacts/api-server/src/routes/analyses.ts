@@ -43,8 +43,14 @@ import {
   isTemporaryOcrDiagnosticMessage,
 } from "../lib/analysisFailure";
 import { inspectStorageDirectory, inspectStoredFile } from "../lib/fileStorage";
+import { createRateLimiter } from "../middlewares/rateLimit";
 
 const router: IRouter = Router();
+
+export const ANALYSIS_CREATION_RATE_LIMIT = {
+  windowMs: 60_000,
+  maxRequests: 5,
+} as const;
 
 class InsufficientAnalysisCreditsError extends Error {
   constructor(readonly requiredCredits: number) {
@@ -91,6 +97,20 @@ function getCandidateUploadPaths(body: unknown): string[] {
     ? paths.filter((filePath): filePath is string => typeof filePath === "string")
     : [];
 }
+
+const limitAnalysisCreation = createRateLimiter({
+  ...ANALYSIS_CREATION_RATE_LIMIT,
+  keyGenerator: (req) =>
+    typeof req.userId === "number" ? `user:${req.userId}` : null,
+  message:
+    "You're creating analyses too quickly. Please wait a minute and try again.",
+  // The limiter itself is covered by focused tests. Keep the long API suite
+  // deterministic even though it creates many analyses as the same mock user.
+  skip: () => process.env.NODE_ENV === "test",
+  onLimit: (req) => {
+    cleanupUnclaimedUploads(getCandidateUploadPaths(req.body));
+  },
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -282,7 +302,11 @@ router.get("/analyses", requireAuth, async (req, res): Promise<void> => {
   );
 });
 
-router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
+router.post(
+  "/analyses",
+  requireAuth,
+  limitAnalysisCreation,
+  async (req, res): Promise<void> => {
   const candidateFilePaths = getCandidateUploadPaths(req.body);
   const parsed = CreateAnalysisBody.safeParse(req.body);
   if (!parsed.success) {
@@ -403,7 +427,8 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
 
     res.status(500).json({ error: "Unable to start the analysis. Please try again." });
   }
-});
+  },
+);
 
 export async function processAnalysis(
   analysisId: number,

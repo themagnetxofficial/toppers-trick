@@ -15,6 +15,7 @@ import {
   DATABASE_UNAVAILABLE_MESSAGE,
   isDatabaseUnavailable,
 } from "./lib/serviceAvailability";
+import { limitClerkSignInAndSignUp } from "./middlewares/rateLimit";
 
 const app = express();
 
@@ -38,7 +39,11 @@ app.use(
   }),
 );
 
-app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+app.use(
+  CLERK_PROXY_PATH,
+  limitClerkSignInAndSignUp,
+  clerkProxyMiddleware(),
+);
 
 app.use(cors({ credentials: true, origin: true }));
 app.use(express.json());
