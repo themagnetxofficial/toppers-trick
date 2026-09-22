@@ -1,8 +1,8 @@
 import { Router, IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, paymentsTable, creditBatchesTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { createHmac } from "crypto";
+import { validatePaymentVerification } from "razorpay/dist/utils/razorpay-utils.js";
 import {
   CreatePaymentOrderBody,
   CreatePaymentOrderResponse,
@@ -22,6 +22,23 @@ const PACKAGES = {
 } as const;
 
 type PackageId = keyof typeof PACKAGES;
+
+class PaymentConfirmationError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+  ) {
+    super(message);
+  }
+}
+
+interface LockedPayment {
+  id: number;
+  userId: number;
+  amount: number;
+  razorpayPaymentId: string | null;
+  status: string;
+}
 
 const LEGACY_CREDITS_BY_AMOUNT = new Map([
   [6900, 5],
@@ -108,64 +125,132 @@ router.post(
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature } =
       parsed.data;
 
-    // Verify signature
-    const secret = process.env.RAZORPAY_KEY_SECRET ?? "";
-    const generated = createHmac("sha256", secret)
-      .update(`${razorpayOrderId}|${razorpayPaymentId}`)
-      .digest("hex");
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) {
+      res.status(503).json({ error: "Payment service not configured" });
+      return;
+    }
 
-    if (generated !== razorpaySignature) {
+    // Razorpay's official helper verifies HMAC-SHA256(order_id|payment_id)
+    // with the server-only key secret before any payment or credit mutation.
+    const signatureIsValid = validatePaymentVerification(
+      {
+        order_id: razorpayOrderId,
+        payment_id: razorpayPaymentId,
+      },
+      razorpaySignature,
+      secret,
+    );
+
+    if (!signatureIsValid) {
       logger.warn({ razorpayOrderId }, "Payment signature verification failed");
       res.status(400).json({ error: "Payment verification failed" });
       return;
     }
 
-    // Look up the pending payment to determine how many credits to award
-    const paymentRow = await db
-      .select()
-      .from(paymentsTable)
-      .where(eq(paymentsTable.razorpayOrderId, razorpayOrderId))
-      .limit(1)
-      .then((rows) => rows[0]);
+    try {
+      const confirmation = await db.transaction(async (tx) => {
+        // Serialize confirmations for this order. A retry waits for the first
+        // transaction, then observes status=success and does not add credits.
+        const lockedResult = await tx.execute(sql`
+          SELECT
+            id,
+            user_id AS "userId",
+            amount,
+            razorpay_payment_id AS "razorpayPaymentId",
+            status
+          FROM payments
+          WHERE razorpay_order_id = ${razorpayOrderId}
+          FOR UPDATE
+        `);
+        const paymentRow = lockedResult.rows[0] as unknown as
+          | LockedPayment
+          | undefined;
 
-    const creditsToAward = creditsForAmount(paymentRow?.amount ?? PACKAGES.value.amountPaise);
+        if (!paymentRow || Number(paymentRow.userId) !== req.userId) {
+          throw new PaymentConfirmationError("Payment verification failed", 400);
+        }
 
-    // Mark payment as successful
-    await db
-      .update(paymentsTable)
-      .set({ razorpayPaymentId, status: "success" })
-      .where(eq(paymentsTable.razorpayOrderId, razorpayOrderId));
+        const creditsToAward = creditsForAmount(paymentRow.amount);
 
-    // Create a 30-day expiring credit batch for this purchase
-    const purchasedAt = new Date();
-    const expiresAt = new Date(purchasedAt);
-    expiresAt.setDate(expiresAt.getDate() + 30);
+        if (paymentRow.status === "success") {
+          if (paymentRow.razorpayPaymentId !== razorpayPaymentId) {
+            throw new PaymentConfirmationError(
+              "Payment order has already been completed",
+              409,
+            );
+          }
+          return { creditsToAward, expiresAt: null, alreadyCredited: true };
+        }
 
-    await db.insert(creditBatchesTable).values({
-      userId: req.userId!,
-      creditsTotal: creditsToAward,
-      creditsRemaining: creditsToAward,
-      isPaid: true,
-      purchasedAt,
-      expiresAt,
-      paymentId: paymentRow?.id ?? null,
-    });
+        if (paymentRow.status !== "pending") {
+          throw new PaymentConfirmationError(
+            "Payment order cannot be completed",
+            409,
+          );
+        }
 
-    // Fetch updated credit info for the response
-    const creditInfo = await getCreditInfo(req.userId!);
+        await tx
+          .update(paymentsTable)
+          .set({ razorpayPaymentId, status: "success" })
+          .where(eq(paymentsTable.id, paymentRow.id));
 
-    logger.info(
-      { userId: req.userId, razorpayPaymentId, creditsToAward, expiresAt },
-      "Payment verified, credits batch created"
-    );
+        // Payment status and its credit batch commit or roll back together.
+        const purchasedAt = new Date();
+        const expiresAt = new Date(purchasedAt);
+        expiresAt.setDate(expiresAt.getDate() + 30);
 
-    res.json(
-      VerifyPaymentResponse.parse({
-        creditsRemaining: creditInfo.creditsRemaining,
-        totalPurchased: creditInfo.totalPurchased,
-        freeCreditUsed: false,
-      })
-    );
+        await tx.insert(creditBatchesTable).values({
+          userId: req.userId!,
+          creditsTotal: creditsToAward,
+          creditsRemaining: creditsToAward,
+          isPaid: true,
+          purchasedAt,
+          expiresAt,
+          paymentId: paymentRow.id,
+        });
+
+        return { creditsToAward, expiresAt, alreadyCredited: false };
+      });
+
+      const creditInfo = await getCreditInfo(req.userId!);
+
+      logger.info(
+        {
+          userId: req.userId,
+          razorpayPaymentId,
+          creditsToAward: confirmation.creditsToAward,
+          expiresAt: confirmation.expiresAt,
+          alreadyCredited: confirmation.alreadyCredited,
+        },
+        confirmation.alreadyCredited
+          ? "Duplicate payment confirmation handled idempotently"
+          : "Payment verified, credits batch created",
+      );
+
+      res.json(
+        VerifyPaymentResponse.parse({
+          creditsRemaining: creditInfo.creditsRemaining,
+          totalPurchased: creditInfo.totalPurchased,
+          freeCreditUsed: false,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof PaymentConfirmationError) {
+        logger.warn(
+          { razorpayOrderId, userId: req.userId, reason: err.message },
+          "Payment confirmation rejected",
+        );
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+
+      logger.error(
+        { err, razorpayOrderId, userId: req.userId },
+        "Payment confirmation failed",
+      );
+      res.status(500).json({ error: "Failed to confirm payment" });
+    }
   }
 );
 
