@@ -107,7 +107,17 @@ router.post(
       );
     } catch (err) {
       logger.error({ err }, "Failed to create Razorpay order");
-      res.status(500).json({ error: "Failed to create payment order" });
+      // TEMPORARY: remove after diagnosing production payment issue.
+      const message = err instanceof Error ? err.message : String(err);
+      const safeMessage = message
+        .replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "[database URL redacted]")
+        .replace(/\bkey_(?:live|test)_[A-Za-z0-9]+\b/g, "[Razorpay key redacted]")
+        .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+        .slice(0, 500);
+      res.status(500).json({
+        error: "Failed to create payment order",
+        diagnostic: `[TEMP DIAGNOSTIC] ${safeMessage}`,
+      });
     }
   }
 );
