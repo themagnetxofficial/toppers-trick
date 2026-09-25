@@ -1,16 +1,10 @@
 ---
-name: Razorpay CommonJS interop
-description: Production-only constructor mismatch when loading the Razorpay SDK in the ESM API bundle.
+name: Razorpay production dependencies
+description: Hostinger-specific missing nested SDK packages and the payment build verification rule.
 ---
 
-Razorpay's installed Node SDK is CommonJS and exports its constructor directly via `module.exports`. Do not assume `.default` on a dynamic import resolves to the constructor in every production runtime; prefer Node's `createRequire(import.meta.url)` to load its direct CommonJS export from the ESM server bundle.
+Bundle the Razorpay SDK and its dependencies into the server output rather than loading the package from production `node_modules` at runtime. Keep an isolated compiled-client smoke check outside workspace `node_modules`, including a mock order request that never reaches the network.
 
-**Why:** A production payment-order attempt failed with "Razorpay is not a constructor" even though local Node returned a constructor from a dynamic import's default. Source-level tests did not exercise this path.
+**Why:** The SDK is CommonJS and dynamic import yielded a constructor mismatch in production; switching to a runtime CommonJS load exposed missing `axios`, then `combined-stream` after promoting the next layer of dependencies. Both were present locally. Hostinger's packaging cannot be trusted to supply nested package dependencies. A local constructor check that runs beside installed dependencies did not detect this.
 
-**How to apply:** When changing payment SDK loading or build configuration, check the actual package export and instantiate the client from the built server output with dummy values; no network request is necessary for this constructor check.
-
-The production installer failed to make Razorpay's transitive `axios` dependency available even though pnpm had it in the lockfile. Keep `axios` as a direct runtime dependency of the API package rather than relying solely on transitive installation in this deployment environment.
-
-**Why:** Once the CommonJS constructor loaded in production, order creation failed with "Cannot find module 'axios'"; the dependency was locked beneath Razorpay but was not declared by the API package.
-
-**How to apply:** Preserve the API package's direct declaration through dependency upgrades, and verify its lockfile importer entry and installed module link when preparing production builds.
+**How to apply:** After changing the SDK or bundler, verify the server output includes the SDK and its nested dependencies, then run the isolated build check with dummy credentials and an in-memory HTTP adapter. Do not claim a live payment succeeds until Hostinger serves the new build and an authorized user confirms the production flow.

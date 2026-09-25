@@ -1,9 +1,9 @@
 import { Router, IRouter } from "express";
-import { createRequire } from "node:module";
 import { eq, sql } from "drizzle-orm";
 import { db, paymentsTable, creditBatchesTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { validatePaymentVerification } from "razorpay/dist/utils/razorpay-utils.js";
+import { createRazorpayClient } from "../lib/razorpayClient";
 import {
   CreatePaymentOrderBody,
   CreatePaymentOrderResponse,
@@ -15,7 +15,6 @@ import { getCreditInfo } from "../lib/credits";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
-const requireRazorpay = createRequire(import.meta.url);
 
 // Available credit packages
 const PACKAGES = {
@@ -56,11 +55,10 @@ function creditsForAmount(amountPaise: number): number {
 }
 
 async function getRazorpay() {
-  const Razorpay = requireRazorpay("razorpay") as typeof import("razorpay");
-  return new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID ?? "",
-    key_secret: process.env.RAZORPAY_KEY_SECRET ?? "",
-  });
+  return createRazorpayClient(
+    process.env.RAZORPAY_KEY_ID ?? "",
+    process.env.RAZORPAY_KEY_SECRET ?? "",
+  );
 }
 
 router.post(
@@ -109,17 +107,7 @@ router.post(
       );
     } catch (err) {
       logger.error({ err }, "Failed to create Razorpay order");
-      // TEMPORARY: remove after diagnosing production payment issue.
-      const message = err instanceof Error ? err.message : String(err);
-      const safeMessage = message
-        .replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "[database URL redacted]")
-        .replace(/\bkey_(?:live|test)_[A-Za-z0-9]+\b/g, "[Razorpay key redacted]")
-        .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
-        .slice(0, 500);
-      res.status(500).json({
-        error: "Failed to create payment order",
-        diagnostic: `[TEMP DIAGNOSTIC] ${safeMessage}`,
-      });
+      res.status(500).json({ error: "Failed to create payment order" });
     }
   }
 );
