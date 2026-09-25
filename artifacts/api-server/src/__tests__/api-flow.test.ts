@@ -266,6 +266,7 @@ import app from "../app";
 import { processAnalysis } from "../routes/analyses";
 import {
   AnalysisProcessingError,
+  getAnalysisFailureMessage,
   getAnalysisFailureMessageWithRefund,
   getTemporaryOcrDiagnosticMessage,
 } from "../lib/analysisFailure";
@@ -725,47 +726,6 @@ describe("background analysis diagnostics", () => {
     fs.rmSync(paper, { force: true });
   });
 
-  it("stores unexpected AI analysis exceptions temporarily with the correct stage", async () => {
-    const { db } = await import("@workspace/db");
-    const { analyzeWithAI } = await import("../lib/openai");
-    const { extractTextFromFilesWithLabels } = await import("../lib/extractText");
-    const paper = path.join(uploadsDir, "ai-runtime-failure.pdf");
-    const runtimeError = new Error("Unexpected provider runtime failure");
-    fs.writeFileSync(paper, "%PDF-1.4 test");
-    vi.mocked(db.update).mockClear();
-    vi.mocked(extractTextFromFilesWithLabels).mockResolvedValueOnce({
-      text: "Question 1: Describe Newton's laws of motion in detail (10 marks).",
-      yearLabels: ["Paper 1"],
-      papers: [
-        {
-          label: "Paper 1",
-          text: "Question 1: Describe Newton's laws of motion in detail (10 marks).",
-        },
-      ],
-      extractedCharacterCount: 64,
-    });
-    vi.mocked(analyzeWithAI).mockRejectedValueOnce(runtimeError);
-
-    await processAnalysis(105, {
-      category: "school",
-      classOrCourse: "12th",
-      boardOrUniversity: "CBSE",
-      subject: "Physics",
-      filePaths: [paper],
-      userId: 1,
-    });
-
-    const updatePayloads = vi.mocked(db.update).mock.results.map((result) => {
-      const chain = result.value as { set: ReturnType<typeof vi.fn> };
-      return chain.set.mock.calls[0]?.[0];
-    });
-    expect(updatePayloads).toContainEqual({
-      status: "failed",
-      errorMessage: getTemporaryOcrDiagnosticMessage(runtimeError, "pending", "ai_analysis"),
-    });
-    fs.rmSync(paper, { force: true });
-  });
-
   it("persists degraded status and quality issues with a completed analysis", async () => {
     const { db } = await import("@workspace/db");
     const { analyzeWithAI } = await import("../lib/openai");
@@ -866,11 +826,11 @@ describe("background analysis diagnostics", () => {
     expect(updatePayloads).toContainEqual(
       expect.objectContaining({
         status: "failed",
-        errorMessage: getTemporaryOcrDiagnosticMessage(qualityError, "pending", "ai_analysis"),
+        errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "pending"),
       }),
     );
     expect(updatePayloads.at(-1)).toEqual({
-      errorMessage: getTemporaryOcrDiagnosticMessage(qualityError, "confirmed", "ai_analysis"),
+      errorMessage: getAnalysisFailureMessageWithRefund("ai_analysis", "confirmed"),
     });
     expect(vi.mocked(db.execute)).toHaveBeenCalledTimes(2);
 
@@ -1139,6 +1099,20 @@ describe("GET /api/analyses/:id", () => {
     expect(res.status).toBe(200);
     expect(res.body.errorMessage).toContain("[Temporary OCR diagnostic]");
     expect(res.body.errorMessage).toContain("Canvas binary cannot be loaded");
+  });
+
+  it("does not expose a previously saved AI-analysis diagnostic", async () => {
+    dbState.analysis = {
+      ...dbState.analysis!,
+      status: "failed",
+      errorMessage:
+        "[Temporary OCR diagnostic]\nStage: AI analysis\nCredit status: Your credit has been refunded.\n\nError: internal provider details",
+    };
+
+    const res = await request(app).get("/api/analyses/42");
+    expect(res.status).toBe(200);
+    expect(res.body.errorMessage).toBe(getAnalysisFailureMessage("unknown"));
+    expect(res.body.errorMessage).not.toContain("internal provider details");
   });
 });
 
