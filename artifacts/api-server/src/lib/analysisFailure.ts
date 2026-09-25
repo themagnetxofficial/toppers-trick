@@ -89,18 +89,19 @@ function formatTechnicalError(error: unknown, seen = new Set<unknown>()): string
 }
 
 /**
- * Temporary, deliberately detailed diagnostic for Hostinger OCR debugging.
- * It is only used for unexpected text-extraction exceptions and is returned
+ * Temporary, deliberately detailed diagnostic for Hostinger runtime debugging.
+ * It is only used for unexpected text-extraction or AI-analysis exceptions and is returned
  * to the analysis owner by the allowlist below. Remove after the deployment
  * runtime problem has been identified.
  */
 export function getTemporaryOcrDiagnosticMessage(
   error: unknown,
   refundState: RefundState,
+  stage: "text_extraction" | "ai_analysis" = "text_extraction",
 ): string {
   const message = [
     TEMPORARY_OCR_DIAGNOSTIC_PREFIX,
-    "Stage: text extraction",
+    `Stage: ${stage === "ai_analysis" ? "AI analysis" : "text extraction"}`,
     `Credit status:${getRefundSuffix(refundState)}`,
     "",
     formatTechnicalError(error),
