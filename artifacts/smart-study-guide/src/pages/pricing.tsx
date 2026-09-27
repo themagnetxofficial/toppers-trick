@@ -6,6 +6,7 @@ import { useGetMyCredits, useCreatePaymentOrder, useVerifyPayment, useListPaymen
 import { Coins, Check, Shield, Zap, Loader2, History, Star } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { trackMetaPixel } from "@/lib/meta-pixel";
 
 type PackageId = "starter" | "value";
 
@@ -72,6 +73,7 @@ export default function PricingPage() {
               }
             }, {
               onSuccess: () => {
+                trackMetaPixel("Purchase", { value: order.amount / 100, currency: order.currency });
                 toast.success(`Payment successful! ${creditsToAdd} credits added to your account.`);
                 refetchCredits();
                 setProcessingPkg(null);
@@ -91,6 +93,7 @@ export default function PricingPage() {
 
         // @ts-ignore
         const rzp = new window.Razorpay(options);
+        trackMetaPixel("InitiateCheckout", { value: order.amount / 100, currency: order.currency });
         rzp.open();
       },
       onError: () => {

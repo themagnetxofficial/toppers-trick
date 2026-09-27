@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUser } from "@clerk/react";
 import { useLocation } from "wouter";
 import { BookOpen, User, Phone, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { trackMetaPixel } from "@/lib/meta-pixel";
 
 export default function OnboardingPage() {
   const { user, isLoaded } = useUser();
@@ -18,6 +19,35 @@ export default function OnboardingPage() {
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const trackedRegistrationRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoaded || !user || user.unsafeMetadata?.onboardingComplete) return;
+
+    // Clerk redirects newly created users here after signup. Avoid tracking
+    // existing users who manually revisit onboarding or duplicate page loads.
+    const createdAt = user.createdAt?.getTime();
+    if (!createdAt || Date.now() - createdAt > 60 * 60 * 1000) return;
+    if (trackedRegistrationRef.current === user.id) return;
+
+    const key = `meta-registration:${user.id}`;
+    try {
+      if (localStorage.getItem(key)) {
+        trackedRegistrationRef.current = user.id;
+        return;
+      }
+    } catch {
+      // Tracking can still work when browser storage is unavailable.
+    }
+    if (trackMetaPixel("CompleteRegistration")) {
+      trackedRegistrationRef.current = user.id;
+      try {
+        localStorage.setItem(key, "1");
+      } catch {
+        // Do not interrupt onboarding when browser storage is unavailable.
+      }
+    }
+  }, [isLoaded, user]);
 
   if (!isLoaded) return null;
 
