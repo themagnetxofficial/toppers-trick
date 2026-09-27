@@ -403,6 +403,15 @@ export default function AnalyzePage() {
               </div>
             </div>
 
+            {files.length >= 1 && files.length <= 3 && (
+              <p
+                data-testid="text-upload-paper-tip"
+                className="rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+              >
+                💡 Best results ke liye 4+ papers upload karo — kam-papers-se-guide-choti-ho-sakti-hai.
+              </p>
+            )}
+
             {files.length > 0 && (
               <div className="space-y-3">
                 <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Selected Files ({files.length}/5)</h4>
