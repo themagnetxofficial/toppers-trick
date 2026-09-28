@@ -7,6 +7,8 @@ import { setBaseUrl } from "@workspace/api-client-react";
 import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "@/components/ui/toaster";
 import { Shell } from "@/components/layout/shell";
+import { InAppLoginHelper } from "@/components/in-app-login-helper";
+import { detectInAppBrowser } from "@/lib/in-app-browser";
 
 import LandingPage from "./pages/landing";
 import DashboardPage from "./pages/dashboard";
@@ -91,16 +93,20 @@ const clerkAppearance = {
 };
 
 function SignInPage() {
+  const browser = detectInAppBrowser();
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+    <div className={`flex min-h-[100dvh] items-center justify-center bg-background px-4${browser.isInApp ? " flex-col gap-4 py-6" : ""}`}>
+      {browser.isInApp && <InAppLoginHelper browser={browser} />}
       <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
     </div>
   );
 }
 
 function SignUpPage() {
+  const browser = detectInAppBrowser();
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+    <div className={`flex min-h-[100dvh] items-center justify-center bg-background px-4${browser.isInApp ? " flex-col gap-4 py-6" : ""}`}>
+      {browser.isInApp && <InAppLoginHelper browser={browser} />}
       <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} />
     </div>
   );

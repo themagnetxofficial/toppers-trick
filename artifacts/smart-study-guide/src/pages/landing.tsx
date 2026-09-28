@@ -1,8 +1,11 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Sparkles, Target, Zap, Clock, ShieldCheck, FileText } from "lucide-react";
+import { InAppLoginHelper } from "@/components/in-app-login-helper";
+import { detectInAppBrowser } from "@/lib/in-app-browser";
 
 export default function LandingPage() {
+  const browser = detectInAppBrowser();
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background selection:bg-primary/20">
       <header className="px-6 h-20 flex items-center justify-between border-b border-border/50 sticky top-0 bg-background/80 backdrop-blur-md z-50">
@@ -53,6 +56,11 @@ export default function LandingPage() {
               </Link>
               <p className="text-sm text-muted-foreground sm:hidden">Takes 2 minutes. No credit card required.</p>
             </div>
+            {browser.isInApp && (
+              <div className="flex justify-center">
+                <InAppLoginHelper browser={browser} />
+              </div>
+            )}
           </div>
         </section>
 
